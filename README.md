@@ -16,7 +16,7 @@ A keyboard launcher for Windows. Double-tap Ctrl to launch apps, find files, swi
 
 ## ドキュメント / Documentation
 
-- 使い方・ワークフロー（manifest.json）仕様・設定リファレンス: https://conduit-lp.pages.dev/info/ （[English](https://conduit-lp.pages.dev/en/info/)）
+- 使い方・ワークフロー（manifest.json）仕様・設定リファレンス: https://conduit.ynaoak.dev/info/ （[English](https://conduit.ynaoak.dev/en/info/)）
 
 ## ソースからビルド / Build from source
 
