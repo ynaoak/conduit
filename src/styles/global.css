@@ -1,0 +1,189 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #16213e;
+  --bg-hover: #1e2d4a;
+  --bg-selected: #2a3f5f;
+  --text-primary: #e8e8ed;
+  --text-secondary: #8e8ea0;
+  --text-accent: #7c83fd;
+  --border-color: #2a2a4a;
+  --border-radius: 12px;
+  --shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --input-height: 56px;
+  --result-height: 52px;
+  --result-height-compact: 34px;
+  --transition-fast: 100ms ease;
+}
+
+html,
+body {
+  background: var(--bg-primary);
+  overflow: hidden;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding-top: 0;
+}
+
+.conduit-root {
+  position: relative;
+  width: 100%;
+  max-width: 750px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: windowAppear 150ms ease-out;
+}
+
+@keyframes windowAppear {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Window drag handle (frameless window) */
+.drag-handle {
+  position: relative;
+  height: 32px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.drag-handle::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  pointer-events: none;
+}
+
+/* Always-on-top pin */
+.pin-button {
+  position: absolute;
+  right: 44px;
+  top: 4px;
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+  opacity: 0.35;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.pin-button:hover {
+  opacity: 0.8;
+  background: var(--bg-hover);
+}
+
+.pin-button.pinned {
+  opacity: 1;
+}
+
+/* Close (hide) button — same as Esc */
+.close-button {
+  position: absolute;
+  right: 12px;
+  top: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.close-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Workflow zip drag & drop overlay */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(26, 26, 46, 0.85);
+  border: 2px dashed var(--text-accent);
+  border-radius: var(--border-radius);
+  color: var(--text-accent);
+  font-size: 16px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Import result toast */
+.toast {
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-selected);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 8px 16px;
+  max-width: 90%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 11;
+  animation: windowAppear 150ms ease-out;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
