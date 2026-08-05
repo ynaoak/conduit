@@ -1,0 +1,25 @@
+{
+  "id": "web-essentials",
+  "name": "Web Essentials",
+  "description": "よく使う Web アプリ集（サンプル）",
+  "icon": "🌐",
+  "apps": [
+    { "name": "GitHub", "url": "https://github.com", "icon": "🐙", "description": "GitHub を開く" },
+    { "name": "Gmail", "url": "https://mail.google.com", "icon": "✉️" },
+    { "name": "YouTube", "url": "https://www.youtube.com", "icon": "▶️" },
+    {
+      "name": "YouTube 検索",
+      "url": "https://www.youtube.com/results?search_query={query}",
+      "keyword": "yt",
+      "icon": "▶️",
+      "description": "yt <キーワード> で YouTube 検索"
+    },
+    {
+      "name": "Google 翻訳",
+      "url": "https://translate.google.com/?sl=auto&tl=ja&text={query}",
+      "keyword": "tr",
+      "icon": "🌏",
+      "description": "tr <テキスト> で日本語に翻訳"
+    }
+  ]
+}
