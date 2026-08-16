@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="unixtime_title">Unixtime 変換</title>
+<script>
+// The launcher passes its theme mode as ?theme=dark|light|system —
+// tool windows have no IPC, so the URL is the sync channel. "system"
+// (or no param, e.g. opened from a file) follows the OS live.
+(() => {
+  const theme = new URLSearchParams(location.search).get("theme");
+  const media = matchMedia("(prefers-color-scheme: light)");
+  const apply = () => {
+    const light = theme === "light" || (theme !== "dark" && media.matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  };
+  apply();
+  media.addEventListener("change", apply);
+})();
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* the launcher injects --conduit-* (tool_window.rs); the literals are
+       the fallback for running this file outside conduit */
+    --surface: var(--conduit-surface, #0b0a0d);
+    --surface-container: var(--conduit-surface-container, #151318);
+    --surface-high: var(--conduit-surface-high, #1e1b24);
+    --on-surface: var(--conduit-on-surface, #ece9f1);
+    --on-variant: var(--conduit-on-variant, #9d97a8);
+    --primary: var(--conduit-primary, #a678ff);
+    --outline: var(--conduit-outline, #2c2933);
+    --on-primary: #241148; --error: #f2b8b5;
+  }
+  /* light palette, applied by the theme script below */
+  :root[data-theme="light"] {
+    --surface: var(--conduit-surface, #faf8f5);
+    --surface-container: var(--conduit-surface-container, #f1eeea);
+    --surface-high: var(--conduit-surface-high, #e9e6e1);
+    --on-surface: var(--conduit-on-surface, #1f1e1b);
+    --on-variant: var(--conduit-on-variant, #4a4741);
+    --primary: var(--conduit-primary, #8038f8);
+    --outline: var(--conduit-outline, #d5d1ca);
+    --on-primary: #ffffff; --error: #b3261e;
+  }
+  body {
+    background: var(--surface); color: var(--on-surface);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", Roboto,
+      "Noto Sans JP", "Segoe UI", sans-serif; font-size: 14px;
+    display: flex; flex-direction: column; gap: 16px; padding: 16px;
+    /* the window is clipped by the injected chrome, and can now be
+       resized smaller than this page: what does not fit has to scroll */
+    overflow-y: auto; overflow-x: hidden;
+  }
+  h1 { font-size: 16px; font-weight: 500; }
+  h2 { font-size: 13px; font-weight: 500; color: var(--on-variant); margin-bottom: 8px; }
+  section {
+    background: var(--surface-container); border: 1px solid var(--outline);
+    border-radius: 12px; padding: 14px;
+  }
+  input {
+    background: var(--surface); color: var(--on-surface);
+    border: 1px solid var(--outline); border-radius: 8px; padding: 8px 12px;
+    font: 13px Consolas, "Cascadia Mono", monospace; outline: none; width: 100%;
+  }
+  input:focus { border-color: var(--primary); }
+  /* A monospace placeholder in the same font as the content reads as
+     content — which is how an empty box ends up looking filled in.
+     Italic separates them at a glance; the content is never italic. */
+  input::placeholder {
+    color: var(--on-variant); opacity: 0.7; font-style: italic;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  button {
+    border: none; border-radius: 999px; padding: 7px 16px; font-size: 13px;
+    background: var(--surface-high); color: var(--on-surface); cursor: pointer;
+    flex-shrink: 0;
+  }
+  button.filled { background: var(--primary); color: var(--on-primary); font-weight: 500; }
+  button:hover { filter: brightness(1.12); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 4px 0; vertical-align: top; }
+  td:first-child { color: var(--on-variant); width: 7.5em; }
+  td.value { font-family: Consolas, "Cascadia Mono", monospace; user-select: text; }
+  #status { font-size: 12px; color: var(--on-variant); min-height: 1.2em; }
+  #status.error { color: var(--error); }
+</style>
+</head>
+<body>
+  <h1 data-i18n="unixtime_title">Unixtime 変換</h1>
+
+  <section>
+    <h2 data-i18n="unixtime_to_date">Unix time → 日時</h2>
+    <input id="unix" placeholder="1723300000 （秒 / ミリ秒は自動判定）" data-i18n-placeholder="unixtime_placeholder" spellcheck="false" />
+    <div class="row">
+      <button class="filled" id="now" data-i18n="unixtime_now">現在時刻を入れる</button>
+      <button id="copy-iso" data-i18n="unixtime_copy_iso">ISO をコピー</button>
+    </div>
+    <div class="row">
+      <table>
+        <tr><td data-i18n="unixtime_local">ローカル</td><td class="value" id="out-local">-</td></tr>
+        <tr><td data-i18n="unixtime_utc">UTC (ISO)</td><td class="value" id="out-iso">-</td></tr>
+        <tr><td data-i18n="unixtime_parsed">解釈</td><td class="value" id="out-kind">-</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="unixtime_from_date">日時 → Unix time</h2>
+    <input id="date" placeholder="2026-08-10 12:34:56 / 2026/08/10 / ISO 8601" data-i18n-placeholder="unixtime_date_placeholder" spellcheck="false" />
+    <div class="row">
+      <table>
+        <tr><td data-i18n="unixtime_parsed">解釈</td><td class="value" id="out-parsed">-</td></tr>
+      </table>
+    </div>
+    <div class="row">
+      <table>
+        <tr><td data-i18n="unixtime_seconds">秒</td><td class="value" id="out-sec">-</td></tr>
+        <tr><td data-i18n="unixtime_millis">ミリ秒</td><td class="value" id="out-ms">-</td></tr>
+      </table>
+    </div>
+    <div class="row">
+      <button id="copy-sec" data-i18n="unixtime_copy_seconds">秒をコピー</button>
+      <button id="copy-ms" data-i18n="unixtime_copy_millis">ミリ秒をコピー</button>
+    </div>
+  </section>
+
+  <div id="status"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+// Strings injected by the launcher for its language; the markup's own
+// text (and these fallbacks) stand when opened outside conduit.
+const S = window.__conduitStrings || {};
+const t = (key, fallback) => S[key] || fallback;
+const status_ = (msg, isError) => {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = isError ? "error" : "";
+};
+const pad = (n) => String(n).padStart(2, "0");
+
+function renderUnix() {
+  const raw = $("unix").value.trim();
+  const reset = () => {
+    $("out-local").textContent = "-";
+    $("out-iso").textContent = "-";
+    $("out-kind").textContent = "-";
+  };
+  if (!raw) return reset();
+  const num = Number(raw);
+  if (!Number.isFinite(num)) {
+    reset();
+    return status_(t("unixtime_not_number", "数値として読めません"), true);
+  }
+  // 10^12 as the seconds/milliseconds boundary: seconds stay below it
+  // until the year 33658, epoch milliseconds passed it in 2001
+  const isMs = Math.abs(num) >= 1e12;
+  const date = new Date(isMs ? num : num * 1000);
+  if (isNaN(date.getTime())) {
+    reset();
+    return status_(t("unixtime_out_of_range", "日時に変換できない値です"), true);
+  }
+  $("out-local").textContent = formatLocal(date);
+  $("out-iso").textContent = date.toISOString();
+  $("out-kind").textContent = isMs
+    ? t("unixtime_as_millis", "ミリ秒として解釈")
+    : t("unixtime_as_seconds", "秒として解釈");
+  status_("");
+}
+
+function formatLocal(d) {
+  const days = t("weekdays", "日,月,火,水,木,金,土").split(",");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+    ` (${days[d.getDay()]}) ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+// "YYYY-MM-DD" / "YYYY/MM/DD", optionally followed by " HH:MM(:SS)" or
+// "THH:MM(:SS)". No timezone in the string means local time. Anything
+// else falls through to Date.parse for full ISO 8601 (Z / offsets).
+const DATE_RE =
+  /^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/;
+
+function parseDateText(v) {
+  const m = v.match(DATE_RE);
+  if (m) {
+    const [, y, mo, d, hh, mi, ss] = m;
+    const date = new Date(
+      Number(y), Number(mo) - 1, Number(d),
+      Number(hh ?? 0), Number(mi ?? 0), Number(ss ?? 0),
+    );
+    // new Date() silently rolls over out-of-range parts (2026-13-40
+    // becomes a real date) — reject instead of converting the wrong day
+    if (
+      date.getFullYear() !== Number(y) ||
+      date.getMonth() !== Number(mo) - 1 ||
+      date.getDate() !== Number(d)
+    ) {
+      return null;
+    }
+    return date;
+  }
+  const parsed = new Date(v);
+  return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function renderDate() {
+  const v = $("date").value.trim();
+  const reset = () => {
+    $("out-sec").textContent = "-";
+    $("out-ms").textContent = "-";
+    $("out-parsed").textContent = "-";
+  };
+  if (!v) return reset();
+  const date = parseDateText(v);
+  if (!date) {
+    reset();
+    return status_(t("unixtime_bad_date", "日時として読めません（例: 2026-08-10 12:34:56）"), true);
+  }
+  $("out-parsed").textContent = formatLocal(date);
+  $("out-sec").textContent = String(Math.floor(date.getTime() / 1000));
+  $("out-ms").textContent = String(date.getTime());
+  status_("");
+}
+
+function copy(text) {
+  if (text === "-" || !text) return;
+  const done = () => status_(t("copied", "コピーしました"));
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyFallback(text, done));
+  } else {
+    copyFallback(text, done);
+  }
+}
+function copyFallback(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  ta.remove();
+  done();
+}
+
+$("unix").addEventListener("input", renderUnix);
+$("date").addEventListener("input", renderDate);
+$("now").onclick = () => {
+  const now = new Date();
+  $("unix").value = String(Math.floor(now.getTime() / 1000));
+  renderUnix();
+  $("date").value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}` +
+    ` ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  renderDate();
+};
+$("copy-iso").onclick = () => copy($("out-iso").textContent);
+$("copy-sec").onclick = () => copy($("out-sec").textContent);
+$("copy-ms").onclick = () => copy($("out-ms").textContent);
+</script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+[package]
+name = "conduit"
+version = "0.2.0"
+description = "A Raycast-style launcher for Windows"
+authors = ["yamadanaoaki"]
+edition = "2021"
+
+[lib]
+name = "conduit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# macos-private-api: transparent() on the window builders is compiled out
+# on macOS without it, and the launcher and every tool window need a
+# transparent surface for their rounded corners. It has to sit here rather
+# than in a macOS-only [target.*.dependencies] block: tauri-build checks
+# this entry against app.macOSPrivateApi in tauri.conf.json on every
+# platform, and only looks at the plain dependency table.
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-shell = "2"
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: keep object keys in the order they appear (the JSON
+# formatter must not silently re-sort a user's document).
+# arbitrary_precision: re-emit numbers exactly as written, so long ids
+# and high-precision decimals survive a round trip through f64.
+serde_json = { version = "1", features = ["preserve_order", "arbitrary_precision"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+async-trait = "0.1"
+fuzzy-matcher = "0.3"
+meval = "0.2"
+urlencoding = "2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+png = "0.17"
+base64 = "0.22"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
+gif = "0.14"
+
+# The system color sampler. Versions match what tao/wry already pull in, so
+# these add no crates to the tree — they only make the types nameable here.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"
+objc2-app-kit = { version = "0.3", features = [
+    "NSColorSampler",
+    "NSColor",
+    "NSColorSpace",
+    "block2",
+    "objc2-core-foundation",
+] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_System_Threading",
+    "Win32_System_Com",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_NetworkManagement_IpHelper",
+    "Win32_Networking_WinSock",
+    "Win32_System_Environment",
+    "Win32_Storage_FileSystem",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+] }

@@ -1,0 +1,714 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="theme_title">カラーシステム</title>
+<script>
+// The launcher passes its theme mode as ?theme=dark|light|system —
+// tool windows have no IPC at load time, so the URL is the sync channel.
+(() => {
+  const theme = new URLSearchParams(location.search).get("theme");
+  const media = matchMedia("(prefers-color-scheme: light)");
+  const apply = () => {
+    const light = theme === "light" || (theme !== "dark" && media.matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  };
+  apply();
+  media.addEventListener("change", apply);
+})();
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* the launcher injects --conduit-* (tool_window.rs); the literals are
+       the fallback for running this file outside conduit */
+    --surface: var(--conduit-surface, #0b0a0d);
+    --surface-container: var(--conduit-surface-container, #151318);
+    --surface-high: var(--conduit-surface-high, #1e1b24);
+    --on-surface: var(--conduit-on-surface, #ece9f1);
+    --on-variant: var(--conduit-on-variant, #9d97a8);
+    --primary: var(--conduit-primary, #a678ff);
+    --outline: var(--conduit-outline, #2c2933);
+    --on-primary: #241148; --error: #f2b8b5;
+  }
+  :root[data-theme="light"] {
+    --surface: var(--conduit-surface, #faf8f5);
+    --surface-container: var(--conduit-surface-container, #f1eeea);
+    --surface-high: var(--conduit-surface-high, #e9e6e1);
+    --on-surface: var(--conduit-on-surface, #1f1e1b);
+    --on-variant: var(--conduit-on-variant, #4a4741);
+    --primary: var(--conduit-primary, #8038f8);
+    --outline: var(--conduit-outline, #d5d1ca);
+    --on-primary: #ffffff; --error: #b3261e;
+  }
+  /* The injected chrome clips the window (html { overflow: hidden }), so
+     anything past the bottom is not merely off-screen, it is unreachable.
+     The page scrolls as a whole rather than scrolling an inner pane: the
+     palettes are the content, and a pane that scrolls inside a window
+     that does not is two scrollbars to explain instead of none. */
+  body {
+    background: var(--surface); color: var(--on-surface); height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", Roboto,
+      "Noto Sans JP", "Segoe UI", sans-serif; font-size: 14px;
+    display: flex; flex-direction: column; gap: 12px; padding: 16px;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  h1 { font-size: 16px; font-weight: 500; }
+  h2 { font-size: 12px; font-weight: 600; color: var(--on-variant); }
+  label { font-size: 12px; color: var(--on-variant); display: block; margin-bottom: 4px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input, select {
+    background: var(--surface-container); color: var(--on-surface);
+    border: 1px solid var(--outline); border-radius: 12px; padding: 9px 12px;
+    font: 13px/1.4 Consolas, "Cascadia Mono", monospace; outline: none;
+  }
+  input { flex: 1; min-width: 120px; }
+  select { font-family: inherit; }
+  input:focus, select:focus { border-color: var(--primary); }
+  button {
+    border: none; border-radius: 999px; padding: 6px 14px; font-size: 12px;
+    background: var(--surface-high); color: var(--on-surface); cursor: pointer;
+  }
+  button.filled { background: var(--primary); color: var(--on-primary); font-weight: 500; padding: 9px 16px; font-size: 13px; }
+  button:hover { filter: brightness(1.12); }
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  #history { display: flex; flex-wrap: wrap; gap: 6px; }
+  #history button {
+    width: 26px; height: 26px; padding: 0; border-radius: 8px;
+    border: 1px solid var(--outline);
+  }
+
+  /* The two modes side by side: a color system is a pair, and the whole
+     point is being able to see one against the other. Narrow enough and
+     they stack instead of squeezing — a column too tight for "accent-
+     container 5.4:1" is worse than a second row. */
+  #modes {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(288px, 1fr));
+    gap: 12px; align-items: start;
+  }
+  .mode {
+    border: 1px solid var(--outline); border-radius: 16px; overflow: hidden;
+    display: flex; flex-direction: column; min-width: 0;
+  }
+  .mode > header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 6px; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--surface-container);
+  }
+  .mode > header .row { gap: 4px; }
+  .mode > header button { padding: 4px 10px; font-size: 11px; border-radius: 8px; }
+
+  /* The preview is painted in the generated colors themselves — the only
+     honest way to show what a palette is going to feel like. */
+  .preview { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .preview .card { border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+  .preview .title { font-size: 14px; font-weight: 600; }
+  .preview .body { font-size: 12px; line-height: 1.5; }
+  .preview .strip { border-radius: 8px; padding: 7px 10px; font-size: 12px; }
+  .preview .buttons { display: flex; gap: 6px; flex-wrap: wrap; }
+  .preview .buttons button { pointer-events: none; padding: 6px 12px; font-weight: 600; }
+
+  .tokens { border-top: 1px solid var(--outline); }
+  .token {
+    display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+    cursor: pointer;
+  }
+  .token:hover { background: var(--surface-container); }
+  .token .chip { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--outline); flex: none; }
+  /* The name gives way first: the swatch, the hex and the ratio are the
+     three things a row exists to show. */
+  .token .name {
+    flex: 1; min-width: 0; font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .token .value { flex: none; font: 11px/1.4 Consolas, "Cascadia Mono", monospace; color: var(--on-variant); }
+  /* A contrast number that fails is the one thing here that must not be
+     quiet about it. */
+  .token .ratio { flex: none; font: 10px/1.4 Consolas, monospace; color: var(--on-variant); width: 44px; text-align: right; }
+  .token .ratio.fail { color: var(--error); }
+  .group { padding: 8px 12px 2px; }
+  #status { font-size: 12px; color: var(--on-variant); min-height: 1.2em; }
+  #status.error { color: var(--error); }
+  #hint { flex: none; font-size: 11px; color: var(--on-variant); line-height: 1.5; }
+  #status { flex: none; }
+</style>
+</head>
+<body>
+  <h1 data-i18n="theme_title">カラーシステム</h1>
+
+  <div>
+    <label for="seed" data-i18n="theme_seed">基準の色（#rgb / #rrggbb）</label>
+    <div class="row">
+      <input id="seed" placeholder="#8038f8" spellcheck="false" />
+      <button class="filled" id="pick" data-i18n="theme_pick">画面から採る</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label for="harmony" style="margin: 0" data-i18n="theme_harmony">組み合わせ</label>
+    <select id="harmony">
+      <option value="analogous" data-i18n="theme_h_analogous">類似色（穏やか）</option>
+      <option value="complement" data-i18n="theme_h_complement">補色（対比）</option>
+      <option value="split" data-i18n="theme_h_split">スプリット補色</option>
+      <option value="triad" data-i18n="theme_h_triad">トライアド</option>
+    </select>
+  </div>
+
+  <div id="history"></div>
+
+  <div id="modes"></div>
+
+  <div id="status"></div>
+  <div id="hint" data-i18n="theme_hint">
+    数値は背景に対するコントラスト比です。本文なら 4.5 以上、大きな文字や
+    アイコンなら 3 以上が目安。行をクリックするとその色をコピーします。
+  </div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const S = window.__conduitStrings || {};
+const t = (key, fallback) => S[key] || fallback;
+const status_ = (msg, isError) => {
+  const el = $("status");
+  el.textContent = msg || "";
+  el.className = isError ? "error" : "";
+};
+
+// Injected by the launcher for built-in packages only (tool_window.rs).
+const HISTORY = Array.isArray(window.__conduitColors) ? window.__conduitColors : [];
+
+/* ---------------------------------------------------------------- color
+
+   The math is in OKLab rather than HSL, and that is the whole reason this
+   produces a usable palette instead of a swatch generator.
+
+   HSL's "lightness" is not lightness: hsl(60 100% 50%) (yellow) and
+   hsl(240 100% 50%) (blue) claim the same 50% and differ by a factor of
+   ten in how bright they look. A tone scale built on it comes out uneven
+   — the yellow steps glare, the blue steps go muddy — and every contrast
+   promise made from it is a guess. OKLab's L is perceptual, so one L
+   means one apparent lightness whatever the hue, and the same recipe can
+   be applied to a red seed and a blue one with the same result.        */
+
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function parseHex(text) {
+  const body = String(text).trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(body)) {
+    const [r, g, b] = body.split("").map((c) => parseInt(c + c, 16));
+    return { r, g, b };
+  }
+  if (/^[0-9a-f]{6}$/i.test(body)) {
+    return {
+      r: parseInt(body.slice(0, 2), 16),
+      g: parseInt(body.slice(2, 4), 16),
+      b: parseInt(body.slice(4, 6), 16),
+    };
+  }
+  return null;
+}
+
+const hex = (c) =>
+  "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+
+const toLinear = (v) => {
+  v /= 255;
+  return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+};
+const fromLinear = (v) =>
+  v <= 0.0031308 ? v * 12.92 : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+
+function rgbToOklab(c) {
+  const r = toLinear(c.r), g = toLinear(c.g), b = toLinear(c.b);
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return {
+    L: 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    a: 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    b: 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  };
+}
+
+/** Linear-light RGB, unclamped — out-of-range means out of gamut */
+function oklabToLinearRgb({ L, a, b }) {
+  const l = Math.pow(L + 0.3963377774 * a + 0.2158037573 * b, 3);
+  const m = Math.pow(L - 0.1055613458 * a - 0.0638541728 * b, 3);
+  const s = Math.pow(L - 0.0894841775 * a - 1.291485548 * b, 3);
+  return {
+    r: 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    g: -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    b: -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  };
+}
+
+const inGamut = (linear) =>
+  [linear.r, linear.g, linear.b].every((v) => v >= -0.0005 && v <= 1.0005);
+
+const toLch = (lab) => ({
+  L: lab.L,
+  C: Math.hypot(lab.a, lab.b),
+  h: ((Math.atan2(lab.b, lab.a) * 180) / Math.PI + 360) % 360,
+});
+
+const fromLch = ({ L, C, h }) => ({
+  L,
+  a: C * Math.cos((h * Math.PI) / 180),
+  b: C * Math.sin((h * Math.PI) / 180),
+});
+
+/**
+ * LCh to a real sRGB color.
+ *
+ * A hue and lightness can ask for more chroma than sRGB has (a light,
+ * vivid blue does not exist in this gamut). Clamping the channels would
+ * quietly shift the hue instead; binary-searching the chroma down keeps
+ * the hue and the lightness — the two things the palette's structure is
+ * actually made of — and gives up only the saturation.
+ */
+function lchToRgb(lch) {
+  let low = 0, high = lch.C, best = 0;
+  if (inGamut(oklabToLinearRgb(fromLch(lch)))) {
+    best = lch.C;
+  } else {
+    for (let i = 0; i < 24; i++) {
+      const mid = (low + high) / 2;
+      if (inGamut(oklabToLinearRgb(fromLch({ ...lch, C: mid })))) {
+        best = mid;
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+  }
+  const linear = oklabToLinearRgb(fromLch({ ...lch, C: best }));
+  const channel = (v) => Math.round(clamp(fromLinear(clamp(v, 0, 1)), 0, 1) * 255);
+  return { r: channel(linear.r), g: channel(linear.g), b: channel(linear.b) };
+}
+
+/** WCAG 2 contrast ratio, which is still what accessibility is judged on */
+function contrast(a, b) {
+  const luminance = (c) =>
+    0.2126 * toLinear(c.r) + 0.7152 * toLinear(c.g) + 0.0722 * toLinear(c.b);
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+}
+
+/** Black or white, whichever survives on this color */
+const ink = (c) =>
+  contrast(c, { r: 0, g: 0, b: 0 }) >= contrast(c, { r: 255, g: 255, b: 255 })
+    ? { r: 0, g: 0, b: 0 }
+    : { r: 255, g: 255, b: 255 };
+
+/**
+ * Nudge a color's lightness until it clears `target` against `against`.
+ *
+ * The generated tones are chosen to pass, but a seed near the edge of the
+ * gamut (a deep navy, a neon yellow) can still land short. Walking the
+ * lightness — away from the background, in the direction the mode already
+ * goes — fixes it without touching the hue.
+ */
+function ensureContrast(lch, against, target, towardsLight) {
+  let candidate = { ...lch };
+  for (let i = 0; i < 40; i++) {
+    const rgb = lchToRgb(candidate);
+    if (contrast(rgb, against) >= target) return candidate;
+    candidate = { ...candidate, L: clamp(candidate.L + (towardsLight ? 0.02 : -0.02), 0, 1) };
+  }
+  return candidate;
+}
+
+/* --------------------------------------------------------------- scheme
+
+   One recipe, applied twice. Everything is expressed as (lightness,
+   chroma) against the seed's hue, so the same numbers produce a family
+   whatever color is dropped in.                                       */
+
+const HARMONY = {
+  analogous: 30,
+  complement: 180,
+  split: 150,
+  triad: 120,
+};
+
+/** Fixed hues for the colors that mean something regardless of brand:
+ *  a red danger button is not a style choice. They still take the
+ *  palette's chroma and lightness, so they read as part of the set. */
+const SEMANTIC = { danger: 27, success: 145, warning: 85 };
+
+const TONES = {
+  dark: {
+    background: 0.17, surface: 0.22, hover: 0.27, border: 0.33,
+    text: 0.95, muted: 0.75, accent: 0.78, container: 0.34, action: 0.7,
+    step: 0.05, towardsLight: true,
+  },
+  light: {
+    background: 0.98, surface: 0.955, hover: 0.92, border: 0.87,
+    text: 0.25, muted: 0.47, accent: 0.52, container: 0.9, action: 0.58,
+    step: -0.05, towardsLight: false,
+  },
+};
+
+function scheme(seed, harmony, mode) {
+  const tone = TONES[mode];
+  const base = toLch(rgbToOklab(seed));
+  const hue = base.h;
+  // A seed that is nearly gray has no hue worth spreading around; a very
+  // vivid one would make the neutrals look tinted rather than tinted-ish.
+  const chroma = clamp(base.C, 0.03, 0.18);
+  // Tinted neutrals, not gray ones: a trace of the brand hue in the
+  // surfaces is most of what makes a palette look designed.
+  const neutral = Math.min(0.014, chroma * 0.12);
+
+  const surface = (L) => lchToRgb({ L, C: neutral, h: hue });
+  const background = surface(tone.background);
+
+  const accentLch = ensureContrast(
+    { L: tone.accent, C: chroma, h: hue },
+    background,
+    4.5,
+    tone.towardsLight,
+  );
+
+  /**
+   * A filled action color and the three states it needs to have.
+   *
+   * The label color is chosen against the *worst* of the three, not
+   * against the resting fill: a button does not change its text color on
+   * hover, so black on a fill that darkens when pressed is a label that
+   * fades exactly when the user is looking at it. If no label works, the
+   * whole trio moves in the mode's own direction (darker in light mode,
+   * lighter in dark) until one does — which also pushes the fill further
+   * from the background, never towards it.
+   */
+  const action = (h, name) => {
+    const c = Math.max(chroma, 0.1);
+    let lightness = tone.action;
+    let states = null;
+    let on = null;
+
+    for (let i = 0; i < 24; i++) {
+      states = [0, 0.6, 1.2].map((k) =>
+        lchToRgb({ L: clamp(lightness + tone.step * k, 0, 1), C: c, h }),
+      );
+      const worst = (label) => Math.min(...states.map((state) => contrast(state, label)));
+      const black = { r: 0, g: 0, b: 0 }, white = { r: 255, g: 255, b: 255 };
+      on = worst(black) >= worst(white) ? black : white;
+      if (worst(on) >= 4.5) break;
+      lightness = clamp(lightness + tone.step * 0.4, 0, 1);
+    }
+
+    return { name, fill: states[0], hover: states[1], active: states[2], on };
+  };
+
+  const accentHue = (hue + HARMONY[harmony]) % 360;
+
+  return {
+    mode,
+    background,
+    surface: surface(tone.surface),
+    hover: surface(tone.hover),
+    border: lchToRgb({ L: tone.border, C: neutral, h: hue }),
+    text: lchToRgb(
+      ensureContrast({ L: tone.text, C: neutral, h: hue }, background, 7, tone.towardsLight),
+    ),
+    muted: lchToRgb(
+      ensureContrast({ L: tone.muted, C: neutral, h: hue }, background, 4.5, tone.towardsLight),
+    ),
+    accent: lchToRgb(accentLch),
+    container: lchToRgb({ L: tone.container, C: chroma * 0.5, h: hue }),
+    primary: action(hue, "primary"),
+    secondary: action(accentHue, "secondary"),
+    danger: action(SEMANTIC.danger, "danger"),
+    success: action(SEMANTIC.success, "success"),
+    warning: action(SEMANTIC.warning, "warning"),
+  };
+}
+
+/* ------------------------------------------------------------------ ui */
+
+function tokenRows(s) {
+  const rows = [
+    ["base", "theme_group_base", null],
+    ["background", null, s.background],
+    ["surface", null, s.surface],
+    ["hover", null, s.hover],
+    ["border", null, s.border],
+    ["text", null, s.text],
+    ["text-muted", null, s.muted],
+    ["accent", "theme_group_accent", null],
+    ["accent", null, s.accent],
+    ["accent-container", null, s.container],
+    ["action", "theme_group_action", null],
+  ];
+  for (const key of ["primary", "secondary", "danger", "success", "warning"]) {
+    rows.push([key, null, s[key].fill]);
+    rows.push([`${key}-hover`, null, s[key].hover]);
+    rows.push([`${key}-active`, null, s[key].active]);
+    rows.push([`on-${key}`, null, s[key].on]);
+  }
+  return rows;
+}
+
+function copy(text) {
+  const done = () => status_(t("copied", "コピーしました"));
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyFallback(text, done));
+  } else {
+    copyFallback(text, done);
+  }
+}
+function copyFallback(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  ta.remove();
+  done();
+}
+
+function cssOf(s) {
+  const lines = tokenRows(s)
+    .filter(([, group, color]) => color && !group)
+    .map(([name, , color]) => `  --color-${name}: ${hex(color)};`);
+  const selector = s.mode === "dark" ? ':root[data-theme="dark"]' : ":root";
+  return `${selector} {\n${lines.join("\n")}\n}\n`;
+}
+
+function jsonOf(s) {
+  const out = {};
+  for (const [name, group, color] of tokenRows(s)) {
+    if (!group && color) out[name] = hex(color);
+  }
+  return JSON.stringify({ [s.mode]: out }, null, 2) + "\n";
+}
+
+/** The same palette as a conduit theme, ready to paste into config.json */
+function conduitThemeOf(s) {
+  return (
+    JSON.stringify(
+      {
+        theme: {
+          mode: s.mode,
+          bg_primary: hex(s.background),
+          bg_secondary: hex(s.surface),
+          bg_hover: hex(s.hover),
+          bg_selected: hex(s.container),
+          text_primary: hex(s.text),
+          text_secondary: hex(s.muted),
+          text_accent: hex(s.accent),
+          border_color: hex(s.border),
+        },
+      },
+      null,
+      2,
+    ) + "\n"
+  );
+}
+
+function preview(s) {
+  const wrap = document.createElement("div");
+  wrap.className = "preview";
+  wrap.style.background = hex(s.background);
+  wrap.style.color = hex(s.text);
+
+  const card = document.createElement("div");
+  card.className = "card";
+  card.style.background = hex(s.surface);
+  card.style.boxShadow = `inset 0 0 0 1px ${hex(s.border)}`;
+
+  const title = document.createElement("div");
+  title.className = "title";
+  title.textContent = t("theme_preview_title", "カードのタイトル");
+  card.appendChild(title);
+
+  const body = document.createElement("div");
+  body.className = "body";
+  body.style.color = hex(s.muted);
+  body.textContent = t("theme_preview_body", "本文はこの色で表示されます。");
+  card.appendChild(body);
+
+  const strip = document.createElement("div");
+  strip.className = "strip";
+  strip.style.background = hex(s.container);
+  strip.style.color = hex(ink(s.container));
+  strip.textContent = t("theme_preview_selected", "選択中の行");
+  card.appendChild(strip);
+
+  const buttons = document.createElement("div");
+  buttons.className = "buttons";
+  for (const key of ["primary", "secondary", "danger"]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t(`theme_button_${key}`, key);
+    button.style.background = hex(s[key].fill);
+    button.style.color = hex(s[key].on);
+    buttons.appendChild(button);
+  }
+  card.appendChild(buttons);
+
+  wrap.appendChild(card);
+  return wrap;
+}
+
+function panel(s) {
+  const element = document.createElement("section");
+  element.className = "mode";
+
+  const header = document.createElement("header");
+  const name = document.createElement("h2");
+  name.textContent = t(s.mode === "dark" ? "theme_dark" : "theme_light", s.mode);
+  header.appendChild(name);
+
+  const buttons = document.createElement("div");
+  buttons.className = "row";
+  for (const [key, fallback, make] of [
+    ["theme_copy_css", "CSS", cssOf],
+    ["theme_copy_json", "JSON", jsonOf],
+    ["theme_copy_conduit", "conduit", conduitThemeOf],
+  ]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = t(key, fallback);
+    button.onclick = () => copy(make(s));
+    buttons.appendChild(button);
+  }
+  header.appendChild(buttons);
+  element.appendChild(header);
+
+  element.appendChild(preview(s));
+
+  const tokens = document.createElement("div");
+  tokens.className = "tokens";
+  for (const [name_, group, color] of tokenRows(s)) {
+    if (group) {
+      const heading = document.createElement("div");
+      heading.className = "group";
+      const h = document.createElement("h2");
+      h.textContent = t(group, name_);
+      heading.appendChild(h);
+      tokens.appendChild(heading);
+      continue;
+    }
+    const row = document.createElement("div");
+    row.className = "token";
+    row.title = t("theme_copy_one", "クリックでコピー");
+    row.onclick = () => copy(hex(color));
+
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background = hex(color);
+    row.appendChild(chip);
+
+    const label = document.createElement("span");
+    label.className = "name";
+    label.textContent = name_;
+    row.appendChild(label);
+
+    const value = document.createElement("span");
+    value.className = "value";
+    value.textContent = hex(color);
+    row.appendChild(value);
+
+    // Text and fills are read against the background; the ratio is the
+    // one number that decides whether a suggestion is usable at all.
+    const ratio = document.createElement("span");
+    const against = name_.startsWith("on-") ? null : s.background;
+    if (against) {
+      const value_ = contrast(color, against);
+      ratio.className = value_ < 3 ? "ratio fail" : "ratio";
+      ratio.textContent = `${value_.toFixed(1)}:1`;
+    } else {
+      ratio.className = "ratio";
+    }
+    row.appendChild(ratio);
+
+    tokens.appendChild(row);
+  }
+  element.appendChild(tokens);
+  return element;
+}
+
+let seed = parseHex(HISTORY[0] || "") || { r: 0x80, g: 0x38, b: 0xf8 };
+
+function render() {
+  const harmony = $("harmony").value;
+  const modes = $("modes");
+  modes.textContent = "";
+  modes.appendChild(panel(scheme(seed, harmony, "light")));
+  modes.appendChild(panel(scheme(seed, harmony, "dark")));
+}
+
+function useSeed(color, updateInput) {
+  seed = color;
+  if (updateInput) $("seed").value = hex(color);
+  render();
+}
+
+function renderHistory(values) {
+  const list = $("history");
+  list.textContent = "";
+  for (const value of values) {
+    const color = parseHex(value);
+    if (!color) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.style.background = hex(color);
+    button.title = hex(color);
+    button.setAttribute("aria-label", hex(color));
+    button.onclick = () => useSeed(color, true);
+    list.appendChild(button);
+  }
+}
+
+$("seed").value = hex(seed);
+$("seed").oninput = () => {
+  const text = $("seed").value;
+  if (!text.trim()) return;
+  const color = parseHex(text);
+  if (color) {
+    status_("");
+    useSeed(color, false);
+  } else {
+    status_(t("theme_invalid", "#rgb か #rrggbb の形式で入力してください"), true);
+  }
+};
+$("harmony").onchange = render;
+renderHistory(HISTORY);
+
+// The launcher's IPC. Without it this is still a working generator — it
+// just cannot sample the screen, so that button is taken away rather than
+// left to fail.
+const IPC = window.__TAURI_INTERNALS__;
+if (!IPC) {
+  $("pick").style.display = "none";
+} else {
+  $("pick").onclick = () => {
+    $("pick").disabled = true;
+    status_(t("color_picking", "画面をクリックすると、その一点の色を採ります"));
+    IPC.invoke("pick_screen_color", {})
+      .then((picked) => {
+        const color = picked && parseHex(picked);
+        if (!color) {
+          status_(t("color_cancelled", "中止しました"));
+          return undefined;
+        }
+        useSeed(color, true);
+        status_("");
+        return IPC.invoke("picked_colors", {}).then(renderHistory);
+      })
+      .catch((e) => status_(String(e && e.message ? e.message : e), true))
+      .finally(() => {
+        $("pick").disabled = false;
+      });
+  };
+}
+
+render();
+</script>
+</body>
+</html>
