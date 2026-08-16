@@ -1,0 +1,48 @@
+{
+  "id": "conduit.devtools",
+  "name": "Dev Tools",
+  "description": "オフラインで動く変換ツール集（組み込み）",
+  "version": "16",
+  "apps": [
+    {
+      "name": "Base64 変換",
+      "html": "base64.html",
+      "icon": "code",
+      "description": "テキスト ↔ Base64 の相互変換（別ウィンドウ）"
+    },
+    {
+      "name": "JSON 整形 / 圧縮",
+      "html": "json.html",
+      "icon": "data_object",
+      "description": "JSON の展開と 1 行化の相互変換（別ウィンドウ）"
+    },
+    {
+      "name": "Unixtime 変換（タイムスタンプ）",
+      "html": "unixtime.html",
+      "icon": "schedule",
+      "description": "Unix time ↔ 日時の相互変換（別ウィンドウ）"
+    },
+    {
+      "name": "カラーパレット",
+      "html": "color.html",
+      "icon": "colorize",
+      "description": "採った色の履歴と HEX / RGB / HSL 変換（別ウィンドウ）"
+    },
+    {
+      "name": "スクリーンショット / 録画",
+      "html": "capture.html",
+      "icon": "screenshot_monitor",
+      "description": "撮った画像と録画の履歴（別ウィンドウ）",
+      "width": 720,
+      "height": 720
+    },
+    {
+      "name": "カラーシステム",
+      "html": "theme.html",
+      "icon": "palette",
+      "description": "基準の色から UI 一式（ベース / アクセント / アクション）をライト・ダーク両方で提案",
+      "width": 900,
+      "height": 780
+    }
+  ]
+}

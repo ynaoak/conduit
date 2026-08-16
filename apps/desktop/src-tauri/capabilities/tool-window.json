@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "tool-window",
+  "description": "Workflow HTML apps run in undecorated windows, so they need to drag, resize and close their own window. Nothing else is granted: imported packages stay unable to reach the filesystem, the shell, or any other command.",
+  "windows": [
+    "tool-*"
+  ],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-close"
+  ]
+}

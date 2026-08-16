@@ -1,0 +1,8 @@
+# Cargo output goes under the repo's build/ directory rather than
+# apps/desktop/src-tauri/target, so that apps/ holds sources only. A
+# relative target-dir is resolved against the directory holding this
+# .cargo/ — the repo root — and cargo finds this file by walking up from
+# wherever it is invoked, so `cargo build` still works from inside
+# src-tauri.
+[build]
+target-dir = "build/desktop/target"

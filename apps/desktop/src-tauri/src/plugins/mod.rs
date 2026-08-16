@@ -1,0 +1,13 @@
+pub mod app_launcher;
+pub mod base64_codec;
+pub mod calculator;
+pub mod clipboard_history;
+pub mod color_picker;
+pub mod file_search;
+pub mod json_format;
+pub mod process_monitor;
+pub mod screenshot;
+pub mod system_commands;
+pub mod web_search;
+pub mod window_switcher;
+pub mod workflows;

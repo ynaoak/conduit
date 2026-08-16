@@ -1,0 +1,529 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Built-in themes: the Material Design 3 baseline dark and light schemes,
+ * mapped onto the 9 configurable theme variables. useTheme picks the
+ * palette via data-theme (from theme.mode: system / dark / light) and
+ * applies any per-slot overrides from config.json as inline styles.
+ *   bg-primary    = surface            bg-secondary = surface-container
+ *   bg-hover      = surface-container-high
+ *   bg-selected   = secondary-container
+ *   text-primary  = on-surface         text-secondary = on-surface-variant
+ *   text-accent   = primary            border-color   = outline-variant
+ * Shape scale: 4px menus / 8px chips & small controls / 12px list
+ * selection & cards / 28px window (M3 extra-large). */
+:root {
+  /* Dark: black-based surfaces + the app icon's violet (#8038f8).
+   * The accent is brightened to #a678ff so it stays legible on black;
+   * the selection is the same violet pulled down to a container tone. */
+  --bg-primary: #0b0a0d;
+  --bg-secondary: #151318;
+  --bg-hover: #1e1b24;
+  --bg-selected: #2e2350;
+  --text-primary: #ece9f1;
+  --text-secondary: #9d97a8;
+  --text-accent: #a678ff;
+  --border-color: #2c2933;
+  /* drop-overlay backdrop, follows the surface tone */
+  --scrim: rgba(11, 10, 13, 0.85);
+  --border-radius: 28px;
+  /* M3 elevation level 3 */
+  --shadow: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+  /* M3 elevation level 2 — menus and other small floating surfaces */
+  --shadow-menu: 0 2px 6px 2px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.3);
+  /* -apple-system first so macOS gets SF Pro, with Hiragino behind it for
+     Japanese (SF has no kana). Neither keyword resolves on Windows, so the
+     list falls through to Roboto / Segoe UI there without a platform
+     branch. A launcher that renders in the wrong typeface is the first
+     thing that reads as foreign. */
+  --font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", Roboto,
+    "Noto Sans JP", "Segoe UI", sans-serif;
+  --input-height: 56px;
+  --result-height: 52px;
+  --result-height-compact: 34px;
+  /* M3 standard easing */
+  --transition-fast: 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Light: off-white neutral surfaces + the same icon violet. The
+ * selection is the violet lifted to a pale container tint. */
+:root[data-theme="light"] {
+  --bg-primary: #faf8f5;
+  --bg-secondary: #f1eeea;
+  --bg-hover: #e9e6e1;
+  --bg-selected: #e9defd;
+  --text-primary: #1f1e1b;
+  --text-secondary: #4a4741;
+  --text-accent: #8038f8;
+  --border-color: #d5d1ca;
+  --scrim: rgba(250, 248, 245, 0.85);
+}
+
+/* The window is transparent (tauri.conf.json): the desktop shows through
+ * around the rounded card, which is what makes the 28px corners and the
+ * CSS elevation shadow real — undecorated transparent windows get no DWM
+ * rounding or shadow of their own. */
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+  font-family: var(--font-family);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  /* room for the elevation shadow, which clips at the window edge */
+  padding: 12px 16px 20px;
+  /* carries data-tauri-drag-region (index.html) so the gutter drags */
+  cursor: grab;
+}
+
+.conduit-root {
+  position: relative;
+  width: 100%;
+  max-width: 750px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: windowAppear 250ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+@keyframes windowAppear {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Window drag handle (frameless window) */
+.drag-handle {
+  position: relative;
+  /* Tall enough to aim at: this and the footer are the only places the
+     window can be grabbed from inside the card. */
+  height: 40px;
+  padding: 6px 12px;
+  flex-shrink: 0;
+  cursor: grab;
+}
+
+.drag-handle::before {
+  content: "";
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 48px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  pointer-events: none;
+}
+
+/* Always-on-top pin */
+.pin-button {
+  position: absolute;
+  right: 44px;
+  top: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 999px;
+  opacity: 0.35;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.pin-button:hover {
+  opacity: 0.8;
+  background: var(--bg-hover);
+}
+
+.pin-button.pinned {
+  opacity: 1;
+  color: var(--text-accent);
+}
+
+/* macOS puts window controls at the top left, and the close button there
+   is the system traffic light — so that is what it has to look like.
+   The pin goes to the opposite corner rather than sitting where macOS
+   puts minimise and zoom: it is not a window control, and a lone icon
+   next to the red disc reads as a traffic light with a piece missing. */
+html[data-platform="macos"] .pin-button {
+  right: 12px;
+  left: auto;
+}
+
+html[data-platform="macos"] .close-button {
+  right: auto;
+  left: 13px;
+  top: 10px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 50%;
+  background: #ff5f57;
+  /* the system disc has a slightly darker rim rather than a flat edge */
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+}
+
+/* The disc keeps its colour under the pointer — what changes is the
+   glyph, which macOS reveals only while the pointer is over the group. */
+html[data-platform="macos"] .close-button:hover {
+  background: #ff5f57;
+}
+
+html[data-platform="macos"] .close-button:active {
+  background: #bf4942;
+}
+
+/* Material's ✕ is heavier than the system glyph and would fill the disc */
+html[data-platform="macos"] .close-button svg {
+  display: none;
+}
+
+html[data-platform="macos"] .close-button::before,
+html[data-platform="macos"] .close-button::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 5.5px;
+  width: 6px;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+html[data-platform="macos"] .close-button::before {
+  transform: rotate(45deg);
+}
+
+html[data-platform="macos"] .close-button::after {
+  transform: rotate(-45deg);
+}
+
+html[data-platform="macos"] .close-button:hover::before,
+html[data-platform="macos"] .close-button:hover::after {
+  opacity: 1;
+}
+
+/* Close (hide) button — same as Esc */
+.close-button {
+  position: absolute;
+  right: 12px;
+  top: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 999px;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.close-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* Workflow zip drag & drop overlay */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim);
+  border: 2px dashed var(--text-accent);
+  border-radius: var(--border-radius);
+  color: var(--text-accent);
+  font-size: 16px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Import result toast */
+.toast {
+  position: absolute;
+  bottom: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-selected);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: var(--shadow-menu);
+  color: var(--text-primary);
+  font-size: 12px;
+  padding: 8px 16px;
+  max-width: 90%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 11;
+  /* Not windowAppear: its keyframes set `transform`, which would replace the
+     translateX(-50%) doing the centering above — so the toast animated in
+     from the middle of the window and ran off the right edge. */
+  animation: toastAppear 250ms cubic-bezier(0.05, 0.7, 0.1, 1);
+}
+
+@keyframes toastAppear {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Color loupe (its own window; see src-tauri/src/loupe.rs) --------------- */
+
+/* The window is transparent, and the launcher's own root styling would
+   paint a card into it. */
+html[data-window="loupe"],
+html[data-window="loupe"] body,
+html[data-window="loupe"] #root {
+  background: transparent;
+  cursor: default;
+  overflow: hidden;
+}
+
+.loupe {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 4px;
+  gap: 4px;
+}
+
+.loupe-glass {
+  position: relative;
+  flex: 1;
+  /* A flex item will not shrink past its content without this, which is
+     how the label ends up pushed off the bottom of a fixed-size window. */
+  min-height: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 255, 255, 0.7),
+    0 6px 16px rgba(0, 0, 0, 0.4);
+}
+
+.loupe-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  /* The whole point is to see individual pixels; smoothing would undo it */
+  image-rendering: pixelated;
+}
+
+/* Outlined in both black and white so it stays visible whatever it is
+   sitting on — a single-color crosshair disappears on its own color. */
+.loupe-target {
+  position: absolute;
+  box-shadow: inset 0 0 0 1px #fff, inset 0 0 0 2px #000;
+  pointer-events: none;
+}
+
+.loupe-label {
+  flex: none;
+  height: 24px;
+  border-radius: 8px;
+  font: 600 12px/24px Consolas, "Cascadia Mono", monospace;
+  letter-spacing: 1px;
+  text-align: center;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+/* Capture surface (its own window; see src-tauri/src/capture/region.rs) -- */
+
+/* The window covers a whole monitor and paints the frozen screen itself;
+   the launcher's card styling would draw a rounded panel over it. */
+html[data-window="capture"],
+html[data-window="capture"] body,
+html[data-window="capture"] #root {
+  background: transparent;
+  overflow: hidden;
+  height: 100%;
+}
+
+.capture-surface {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  cursor: crosshair;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* The still of the monitor, at exactly the window's size — the window was
+   made the monitor's size, so this is 1:1 whatever the scale factor is. */
+.capture-frozen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+}
+
+.capture-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+  pointer-events: none;
+}
+
+/* The selection is a hole in the dimming: an outsized shadow darkens
+   everything around it, so there is only ever one element to keep in sync
+   with the drag. */
+.capture-selection {
+  position: absolute;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.42);
+  outline: 1px solid rgba(255, 255, 255, 0.9);
+  pointer-events: none;
+}
+
+.capture-size {
+  position: absolute;
+  top: -26px;
+  left: 0;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font: 600 12px/18px Consolas, "Cascadia Mono", monospace;
+  white-space: nowrap;
+}
+
+.capture-hint {
+  position: absolute;
+  top: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* Recorder controls (see src-tauri/src/capture/record.rs) --------------- */
+
+html[data-window="recorder"],
+html[data-window="recorder"] body,
+html[data-window="recorder"] #root {
+  background: transparent;
+  overflow: hidden;
+  height: 100%;
+}
+
+.recorder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100vh;
+  margin: 4px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  box-shadow: 0 0 0 1px var(--border-color), var(--shadow-menu);
+  color: var(--text-primary);
+}
+
+/* The one thing that has to read as "this is live" from across the room */
+.recorder-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: #e5484d;
+  animation: recorder-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes recorder-pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.recorder-clock {
+  font: 600 14px/1 Consolas, "Cascadia Mono", monospace;
+}
+
+.recorder-label {
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.recorder-stop {
+  flex: none;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.recorder-stop:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Which monitor a surface is on, sitting inside the hint pill */
+.capture-screen {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  font: 600 12px/1.4 Consolas, "Cascadia Mono", monospace;
+}

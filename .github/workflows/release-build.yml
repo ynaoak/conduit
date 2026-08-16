@@ -1,0 +1,169 @@
+# Builds the macOS and Linux bundles for a release and merges their updater
+# keys into latest.json.
+#
+# This file runs on the PUBLIC repo (ynaoak/conduit), not the private dev
+# repo: the dev machine is Windows-only and the private repo's Actions are
+# blocked by billing, while public-repo Actions minutes are free. The release
+# script (release-public.ps1 in the dev repo) builds/signs/publishes the
+# Windows installers and latest.json, exports this file with the whitelisted
+# sources, and tags main — that tag is what starts this workflow here.
+#
+# Third-party actions are pinned to a commit SHA rather than a moving tag: a
+# tag like `@v5` can be repointed at any commit by whoever owns the action,
+# and these steps run with a GITHUB_TOKEN. The trailing comment records the
+# human-readable version each SHA corresponds to. (Pinning
+# `dtolnay/rust-toolchain@stable` freezes the *action*, not the Rust release.)
+
+name: release-build
+
+on:
+  push:
+    tags: ["v*"]
+  # Recovery path: if a build fails, a fixed copy of this workflow can be
+  # dispatched from a branch against the already-published tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published release tag to build for and attach artifacts to (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+            bundle-dir: "build/desktop/target/universal-apple-darwin/release/bundle"
+          - platform: ubuntu-latest
+            args: ""
+            rust-targets: ""
+            bundle-dir: "build/desktop/target/release/bundle"
+    runs-on: ${{ matrix.platform }}
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      CONDUIT_RELEASE_CHANNEL: download
+    steps:
+      # This workflow only ever runs for a published release, so a build
+      # without updater artifacts is worse than no build: everyone who
+      # installs it would be stranded on that version forever. Fail loudly
+      # instead of shipping that.
+      - name: Require the updater signing key
+        env:
+          HAS_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          if [ "$HAS_KEY" != "true" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets are not set on this repo — add them under Settings > Secrets and variables > Actions (docs/release-and-distribution.md in the dev repo)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          # On a tag push this is the tag itself; on dispatch, check out the
+          # named tag so a workflow fix on a branch still builds the tagged
+          # sources.
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
+        with:
+          # .cargo/config.toml routes cargo output to build/desktop/target,
+          # which rust-cache cannot discover on its own.
+          workspaces: "apps/desktop/src-tauri -> ../../../build/desktop/target"
+
+      # Pinned explicitly rather than through corepack: Node 25+ no longer
+      # bundles corepack, so `corepack enable` is a moving target on
+      # `-latest` runner images. Keep in sync with "packageManager" in
+      # package.json.
+      - name: Install pnpm
+        run: npm install -g pnpm@10.33.0
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build (with updater artifacts)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
+
+      # The release is created by the release script seconds after it pushes
+      # the tag, so by the time a build lands here it exists — but do not
+      # bank on that ordering.
+      - name: Wait for the release to exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for i in $(seq 1 30); do
+            gh release view "$TAG" >/dev/null 2>&1 && exit 0
+            echo "release $TAG not visible yet, retrying"
+            sleep 20
+          done
+          echo "::error::release $TAG never appeared — was the release script interrupted after tagging?"
+          exit 1
+
+      - name: Attach bundles to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          shopt -s nullglob
+          files=(
+            ${{ matrix.bundle-dir }}/dmg/*.dmg
+            ${{ matrix.bundle-dir }}/macos/*.app.tar.gz
+            ${{ matrix.bundle-dir }}/macos/*.app.tar.gz.sig
+            ${{ matrix.bundle-dir }}/appimage/*.AppImage
+            ${{ matrix.bundle-dir }}/appimage/*.AppImage.sig
+            ${{ matrix.bundle-dir }}/deb/*.deb
+            ${{ matrix.bundle-dir }}/rpm/*.rpm
+          )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no bundles found under ${{ matrix.bundle-dir }}"
+            exit 1
+          fi
+          printf 'uploading %s\n' "${files[@]}"
+          gh release upload "$TAG" "${files[@]}" --clobber
+
+  # Runs after both platforms have attached their artifacts, because the
+  # merge needs the whole release in one place. Without it macOS and Linux
+  # installs would look for updater keys latest.json does not contain.
+  manifest:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+
+      - name: Merge darwin/linux keys into latest.json
+        run: |
+          set -euo pipefail
+          # No latest.json means the Windows build ran unsigned; there is
+          # nothing to merge into and nothing this job can fix.
+          if ! gh release download "$TAG" -p latest.json -D . --clobber 2>/dev/null; then
+            echo "latest.json not attached to $TAG — Windows build was unsigned, skipping"
+            exit 0
+          fi
+          gh release view "$TAG" --json assets > assets.json
+          mkdir -p sigs
+          gh release download "$TAG" -p '*.sig' -D sigs --clobber || true
+          node apps/desktop/scripts/merge-update-manifest.mjs \
+            --manifest latest.json --assets assets.json --sig-dir sigs
+          gh release upload "$TAG" latest.json --clobber

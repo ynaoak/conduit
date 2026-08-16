@@ -20,6 +20,9 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# All generated output — cargo target dir and the vite bundle — lives here
+/build/
+
 # Node / frontend build
 node_modules/
 dist/
@@ -31,8 +34,9 @@ dist/
 .claude/settings.local.json
 
 # Design working files (icon concepts, generation intermediates)
-public/ignore-resource/
+apps/web/public/ignore-resource/
 tmp/
 
 # Session screenshots for UI review (saved by convention, not shipped)
 docs/feedback/
+docs/**/*.png

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "loupe",
+  "description": "The color loupe only listens: every frame it draws is pushed to it from Rust, and it has no other business with the app.",
+  "windows": ["color-loupe"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

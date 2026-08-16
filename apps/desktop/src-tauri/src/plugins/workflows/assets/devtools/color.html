@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="color_title">カラーパレット</title>
+<script>
+// The launcher passes its theme mode as ?theme=dark|light|system —
+// tool windows have no IPC, so the URL is the sync channel. "system"
+// (or no param, e.g. opened from a file) follows the OS live.
+(() => {
+  const theme = new URLSearchParams(location.search).get("theme");
+  const media = matchMedia("(prefers-color-scheme: light)");
+  const apply = () => {
+    const light = theme === "light" || (theme !== "dark" && media.matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  };
+  apply();
+  media.addEventListener("change", apply);
+})();
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* the launcher injects --conduit-* (tool_window.rs); the literals are
+       the fallback for running this file outside conduit */
+    --surface: var(--conduit-surface, #0b0a0d);
+    --surface-container: var(--conduit-surface-container, #151318);
+    --surface-high: var(--conduit-surface-high, #1e1b24);
+    --on-surface: var(--conduit-on-surface, #ece9f1);
+    --on-variant: var(--conduit-on-variant, #9d97a8);
+    --primary: var(--conduit-primary, #a678ff);
+    --outline: var(--conduit-outline, #2c2933);
+    --on-primary: #241148; --error: #f2b8b5;
+  }
+  :root[data-theme="light"] {
+    --surface: var(--conduit-surface, #faf8f5);
+    --surface-container: var(--conduit-surface-container, #f1eeea);
+    --surface-high: var(--conduit-surface-high, #e9e6e1);
+    --on-surface: var(--conduit-on-surface, #1f1e1b);
+    --on-variant: var(--conduit-on-variant, #4a4741);
+    --primary: var(--conduit-primary, #8038f8);
+    --outline: var(--conduit-outline, #d5d1ca);
+    --on-primary: #ffffff; --error: #b3261e;
+  }
+  body {
+    background: var(--surface); color: var(--on-surface); height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", Roboto,
+      "Noto Sans JP", "Segoe UI", sans-serif; font-size: 14px;
+    display: flex; flex-direction: column; gap: 12px; padding: 16px;
+    /* the window is clipped by the injected chrome, and can now be
+       resized smaller than this page: what does not fit has to scroll */
+    overflow-y: auto; overflow-x: hidden;
+  }
+  h1 { font-size: 16px; font-weight: 500; }
+  label { font-size: 12px; color: var(--on-variant); display: block; margin-bottom: 4px; }
+  input {
+    width: 100%;
+    background: var(--surface-container); color: var(--on-surface);
+    border: 1px solid var(--outline); border-radius: 12px; padding: 10px 12px;
+    font: 13px/1.5 Consolas, "Cascadia Mono", monospace; outline: none;
+  }
+  input:focus { border-color: var(--primary); }
+  /* A monospace placeholder in the same font as the content reads as
+     content. Italic separates them; the content is never italic. */
+  input::placeholder { color: var(--on-variant); opacity: 0.7; font-style: italic; }
+
+  /* The preview is the answer to "what色 is this", so it gets the room */
+  #preview {
+    border-radius: 16px; border: 1px solid var(--outline);
+    height: 84px; display: flex; align-items: center; justify-content: center;
+    font: 600 20px/1 Consolas, "Cascadia Mono", monospace; letter-spacing: 1px;
+  }
+  .formats { display: flex; flex-direction: column; gap: 6px; }
+  .format {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--surface-container); border: 1px solid var(--outline);
+    border-radius: 12px; padding: 8px 10px;
+  }
+  .format .name { font-size: 11px; color: var(--on-variant); width: 34px; }
+  .format .value { flex: 1; font: 13px/1.4 Consolas, "Cascadia Mono", monospace; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  button {
+    border: none; border-radius: 999px; padding: 6px 14px; font-size: 12px;
+    background: var(--surface-high); color: var(--on-surface); cursor: pointer;
+  }
+  button.filled { background: var(--primary); color: var(--on-primary); font-weight: 500; padding: 8px 18px; font-size: 13px; }
+  button:hover { filter: brightness(1.12); }
+  button:disabled { opacity: 0.6; cursor: default; }
+
+  #history { display: flex; flex-wrap: wrap; gap: 8px; }
+  /* Swatches are square and unlabelled: at this size the color is the
+     only thing that can be read anyway, and the hex is one click away. */
+  #history button {
+    width: 34px; height: 34px; padding: 0; border-radius: 10px;
+    border: 1px solid var(--outline);
+  }
+  #history button[aria-pressed="true"] { outline: 2px solid var(--primary); outline-offset: 2px; }
+  #empty { font-size: 12px; color: var(--on-variant); }
+  #status { font-size: 12px; color: var(--on-variant); min-height: 1.2em; }
+  #status.error { color: var(--error); }
+</style>
+</head>
+<body>
+  <h1 data-i18n="color_title">カラーパレット</h1>
+
+  <div class="row">
+    <button class="filled" id="pick" data-i18n="color_pick">画面から色を採る</button>
+  </div>
+
+  <div id="preview">#000000</div>
+
+  <div class="formats">
+    <div class="format"><span class="name">HEX</span><span class="value" id="v-hex"></span><button data-copy="hex" data-i18n="color_copy">コピー</button></div>
+    <div class="format"><span class="name">RGB</span><span class="value" id="v-rgb"></span><button data-copy="rgb" data-i18n="color_copy">コピー</button></div>
+    <div class="format"><span class="name">HSL</span><span class="value" id="v-hsl"></span><button data-copy="hsl" data-i18n="color_copy">コピー</button></div>
+  </div>
+
+  <div>
+    <label for="input" data-i18n="color_input">色を入力（#rgb / #rrggbb）</label>
+    <input id="input" placeholder="#ff8800" spellcheck="false" />
+  </div>
+
+  <div>
+    <label data-i18n="color_history">採った色</label>
+    <div id="history"></div>
+    <div id="empty" data-i18n="color_empty">まだありません。上の「画面から色を採る」で追加されます</div>
+  </div>
+
+  <div id="status"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const S = window.__conduitStrings || {};
+const t = (key, fallback) => S[key] || fallback;
+const status_ = (msg, isError) => {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = isError ? "error" : "";
+};
+
+// Injected by the launcher for built-in packages only (tool_window.rs).
+// Absent when this file is opened outside conduit, which is a palette with
+// nothing in it rather than an error.
+const HISTORY = Array.isArray(window.__conduitColors) ? window.__conduitColors : [];
+
+function parseHex(text) {
+  const body = String(text).trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(body)) {
+    const [r, g, b] = body.split("").map((c) => parseInt(c + c, 16));
+    return { r, g, b };
+  }
+  if (/^[0-9a-f]{6}$/i.test(body)) {
+    return {
+      r: parseInt(body.slice(0, 2), 16),
+      g: parseInt(body.slice(2, 4), 16),
+      b: parseInt(body.slice(4, 6), 16),
+    };
+  }
+  return null;
+}
+
+const hex = (c) =>
+  "#" + [c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, "0")).join("");
+const rgbCss = (c) => `rgb(${c.r}, ${c.g}, ${c.b})`;
+
+function hslCss(c) {
+  const [r, g, b] = [c.r / 255, c.g / 255, c.b / 255];
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2, d = max - min;
+  // A gray has no hue; reporting 0 keeps this out of NaN territory
+  if (d === 0) return `hsl(0, 0%, ${Math.round(l * 100)}%)`;
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h;
+  if (max === r) h = 60 * (((g - b) / d) % 6);
+  else if (max === g) h = 60 * ((b - r) / d + 2);
+  else h = 60 * ((r - g) / d + 4);
+  if (h < 0) h += 360;
+  return `hsl(${Math.round(h)}, ${Math.round(s * 100)}%, ${Math.round(l * 100)}%)`;
+}
+
+// Black or white, whichever survives on top of this color (WCAG luminance)
+function ink(c) {
+  const channel = (v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  const luminance =
+    0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b);
+  return luminance > 0.179 ? "#000" : "#fff";
+}
+
+let current = HISTORY.length ? parseHex(HISTORY[0]) : { r: 0, g: 0, b: 0 };
+
+function show(color) {
+  current = color;
+  const value = hex(color);
+  $("preview").style.background = value;
+  $("preview").style.color = ink(color);
+  $("preview").textContent = value;
+  $("v-hex").textContent = value;
+  $("v-rgb").textContent = rgbCss(color);
+  $("v-hsl").textContent = hslCss(color);
+  for (const button of $("history").children) {
+    button.setAttribute("aria-pressed", String(button.dataset.hex === value));
+  }
+}
+
+// navigator.clipboard needs a secure context, which a custom-protocol
+// origin may not be — fall back to execCommand
+function copy(text) {
+  const done = () => status_(t("copied", "コピーしました"));
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyFallback(text, done));
+  } else {
+    copyFallback(text, done);
+  }
+}
+function copyFallback(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  ta.remove();
+  done();
+}
+
+function renderHistory(values) {
+  const list = $("history");
+  list.textContent = "";
+  for (const value of values) {
+    const color = parseHex(value);
+    if (!color) continue;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.hex = hex(color);
+    button.style.background = hex(color);
+    button.title = hex(color);
+    button.setAttribute("aria-label", hex(color));
+    button.setAttribute("aria-pressed", "false");
+    button.onclick = () => show(color);
+    list.appendChild(button);
+  }
+  $("empty").style.display = list.children.length ? "none" : "block";
+}
+renderHistory(HISTORY);
+
+// The launcher's IPC. Absent when this file is opened outside conduit, in
+// which case the page is still a working converter — it just cannot reach
+// the screen, so the button that promises to is taken away rather than
+// left to fail.
+const IPC = window.__TAURI_INTERNALS__;
+const invoke = (cmd) => (IPC ? IPC.invoke(cmd, {}) : Promise.reject(new Error("no ipc")));
+
+if (!IPC) {
+  $("pick").style.display = "none";
+} else {
+  $("pick").onclick = () => {
+    $("pick").disabled = true;
+    status_(t("color_picking", "画面をクリックすると、その一点の色を採ります"));
+    invoke("pick_screen_color")
+      .then((picked) => {
+        if (!picked) {
+          status_(t("color_cancelled", "中止しました"));
+          return;
+        }
+        const color = parseHex(picked);
+        if (color) show(color);
+        return invoke("picked_colors").then((values) => {
+          renderHistory(values);
+          if (color) show(color);
+          status_("");
+        });
+      })
+      .catch((e) => status_(String(e && e.message ? e.message : e), true))
+      .finally(() => {
+        $("pick").disabled = false;
+      });
+  };
+}
+
+$("input").oninput = () => {
+  const text = $("input").value;
+  if (!text.trim()) {
+    status_("");
+    return;
+  }
+  const color = parseHex(text);
+  if (color) {
+    show(color);
+    status_("");
+  } else {
+    status_(t("color_invalid", "#rgb か #rrggbb の形式で入力してください"), true);
+  }
+};
+
+for (const button of document.querySelectorAll("[data-copy]")) {
+  button.onclick = () => {
+    const format = button.dataset.copy;
+    copy(format === "hex" ? hex(current) : format === "rgb" ? rgbCss(current) : hslCss(current));
+  };
+}
+
+show(current);
+</script>
+</body>
+</html>
