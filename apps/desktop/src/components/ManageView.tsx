@@ -23,6 +23,7 @@ import type {
 import { AboutTab } from "./AboutTab";
 import { KeybindingsTab } from "./KeybindingsTab";
 import { PinsTab } from "./PinsTab";
+import { SettingsTab } from "./SettingsTab";
 import { ResultItem } from "./ResultItem";
 
 export type ManageTab =
@@ -30,6 +31,7 @@ export type ManageTab =
   | "workflows"
   | "launcher"
   | "keybindings"
+  | "settings"
   | "about";
 
 interface ManageViewProps {
@@ -498,6 +500,15 @@ export function ManageView({
       if (tab === "launcher" && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
         return;
       }
+      // Arrows inside a field belong to the field. The settings tab has a
+      // URL and a path to type into, and cycling the tab out from under a
+      // caret loses what was being typed.
+      if (
+        e.key.startsWith("Arrow") &&
+        (e.target as HTMLElement | null)?.closest?.("input, select, textarea")
+      ) {
+        return;
+      }
 
       if (matchChord(e, keybindings.tab_next)) {
         e.preventDefault();
@@ -543,6 +554,13 @@ export function ManageView({
             onConfigSaved={onConfigSaved}
             onRecordingChange={setRecording}
             keybindings={keybindings}
+          />
+        )}
+        {tab === "settings" && (
+          <SettingsTab
+            config={config}
+            onConfigSaved={onConfigSaved}
+            onNotify={onNotify}
           />
         )}
         {tab === "about" && (

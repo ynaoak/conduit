@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { hideWindow } from "../lib/ipc";
 import { matchChord } from "../lib/keys";
 import type { Keybindings, SearchResult } from "../lib/types";
+import { stepHorizontal, stepVertical, type GridRange } from "../lib/dashboardGrid";
 
 /** Shell-handled action id: pin or unpin depending on current state */
 export const TOGGLE_PIN_ACTION = "__toggle_pin";
@@ -33,6 +34,8 @@ export function useKeyboardNav(
   enabled: boolean = true,
   onOpenManage?: () => void,
   onCycleScreen?: (direction: 1 | -1) => void,
+  /** Results drawn as a multi-column grid (dashboard frequent apps) */
+  grid: GridRange | null = null,
 ) {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -105,6 +108,20 @@ export function useKeyboardNav(
         return;
       }
 
+      // Inside the frequent-apps grid, bare Left/Right move a column. The grid
+      // only exists on the empty-query dashboard, so there is no caret to move.
+      if (
+        (e.key === "ArrowLeft" || e.key === "ArrowRight") &&
+        !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey
+      ) {
+        const next = stepHorizontal(selectedIndex, e.key === "ArrowRight" ? 1 : -1, grid);
+        if (next !== null) {
+          e.preventDefault();
+          setSelectedIndex(next);
+          return;
+        }
+      }
+
       // Cycle screens: search -> workflows -> launcher -> keybindings -> ...
       if (onCycleScreen && !isCaretMovement(e)) {
         if (matches(bindings.tab_next)) {
@@ -121,10 +138,10 @@ export function useKeyboardNav(
 
       if (matches(bindings.move_down)) {
         e.preventDefault();
-        setSelectedIndex((i) => Math.min(i + 1, results.length - 1));
+        setSelectedIndex((i) => stepVertical(i, 1, results.length, grid));
       } else if (matches(bindings.move_up)) {
         e.preventDefault();
-        setSelectedIndex((i) => Math.max(i - 1, 0));
+        setSelectedIndex((i) => stepVertical(i, -1, results.length, grid));
       } else if (matches(bindings.execute)) {
         e.preventDefault();
         if (selected) {
@@ -175,7 +192,7 @@ export function useKeyboardNav(
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [results, selectedIndex, panelOpen, actionIndex, onExecute, closePanel, bindings, enabled, onOpenManage, onCycleScreen]);
+  }, [results, selectedIndex, panelOpen, actionIndex, onExecute, closePanel, bindings, enabled, onOpenManage, onCycleScreen, grid]);
 
   return {
     selectedIndex,

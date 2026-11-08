@@ -106,10 +106,15 @@ pub struct ThemeConfig {
     pub border_radius: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PluginsConfig {
-    /// Map of plugin_id -> enabled
+    /// Overrides: plugin_id -> enabled. **A plugin that is not listed is
+    /// on** — the settings tab writes an entry only when something is
+    /// switched off, and the registry reads it the same way
+    /// (`PluginRegistry::is_enabled`). Spelling out every id here instead
+    /// was a second roster that drifted: two plugins shipped after it was
+    /// written were missing from it.
     pub enabled: HashMap<String, bool>,
 }
 
@@ -120,6 +125,12 @@ pub struct SearchConfig {
     pub max_results: usize,
     /// Web search engine: "google", "duckduckgo", "bing", or a custom URL with {query} placeholder
     pub web_search_engine: String,
+    /// Where Everything's command line tool is. Empty means "look for
+    /// `es.exe` on PATH", which is where it is not: Everything installs
+    /// es.exe as a separate download that adds nothing to PATH, so for
+    /// most installations this is the difference between file search
+    /// being instant and being a 3-deep walk of the user folders.
+    pub everything_path: String,
 }
 
 /// Per-package workflow state (the packages themselves live on disk)
@@ -252,29 +263,12 @@ impl Default for ThemeConfig {
     }
 }
 
-impl Default for PluginsConfig {
-    fn default() -> Self {
-        let mut enabled = HashMap::new();
-        enabled.insert("conduit.app-launcher".into(), true);
-        enabled.insert("conduit.base64".into(), true);
-        enabled.insert("conduit.calculator".into(), true);
-        enabled.insert("conduit.clipboard-history".into(), true);
-        enabled.insert("conduit.json".into(), true);
-        enabled.insert("conduit.system-commands".into(), true);
-        enabled.insert("conduit.web-search".into(), true);
-        enabled.insert("conduit.workflows".into(), true);
-        enabled.insert("conduit.file-search".into(), true);
-        enabled.insert("conduit.window-switcher".into(), true);
-        enabled.insert("conduit.process-monitor".into(), true);
-        Self { enabled }
-    }
-}
-
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             max_results: 20,
             web_search_engine: "google".into(),
+            everything_path: String::new(),
         }
     }
 }
@@ -373,7 +367,10 @@ mod tests {
         // round trip returns it unchanged, not which value it happens to be.
         assert_eq!(parsed.hotkey.double_tap, HotkeyConfig::default().double_tap);
         assert_eq!(parsed.hotkey.modifier, "Alt");
-        assert_eq!(parsed.plugins.enabled.get("conduit.json"), Some(&true));
+        // Nothing in `plugins.enabled` by default: the map is overrides,
+        // and everything absent from it is on (see PluginsConfig).
+        assert!(parsed.plugins.enabled.is_empty());
+        assert_eq!(parsed.search.everything_path, "");
     }
 
     #[test]

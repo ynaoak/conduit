@@ -20,7 +20,7 @@ export function useSearch(lang: string) {
 
   useEffect(() => {
     // Empty query still hits the backend: plugins return the default
-    // dashboard view (favorite apps, open windows, recent clips)
+    // dashboard view (pinned favorites, favorite apps, open windows, recent clips)
     setIsLoading(true);
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {

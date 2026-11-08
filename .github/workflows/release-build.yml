@@ -102,6 +102,27 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: pnpm tauri build ${{ matrix.args }} --config src-tauri/tauri.updater.conf.json
 
+      # tauri v2 tars the .app as just "Conduit.app.tar.gz" — no version, no
+      # arch. Rename it like every other asset: versioned (assets from two
+      # releases can coexist in a download dir) and marked "universal" so the
+      # manifest merge keys it as darwin-universal, not x86_64-only (which
+      # would leave Apple Silicon with no matching updater key).
+      - name: Version-stamp the macOS updater artifact
+        if: matrix.platform == 'macos-latest'
+        run: |
+          ver="${TAG#v}"
+          dir="${{ matrix.bundle-dir }}/macos"
+          shopt -s nullglob
+          for f in "$dir"/*.app.tar.gz; do
+            base=$(basename "$f" .app.tar.gz)
+            case "$base" in *"$ver"*) continue ;; esac
+            mv "$f" "$dir/${base}_${ver}_universal.app.tar.gz"
+            if [ -f "$f.sig" ]; then
+              mv "$f.sig" "$dir/${base}_${ver}_universal.app.tar.gz.sig"
+            fi
+          done
+          ls -l "$dir"
+
       # The release is created by the release script seconds after it pushes
       # the tag, so by the time a build lands here it exists — but do not
       # bank on that ordering.

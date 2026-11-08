@@ -110,6 +110,28 @@ impl PinState {
     }
 }
 
+/// Whether losing focus hides the launcher, as a live switch rather than
+/// a startup decision. The setting is in config.json (`window.hide_on_blur`)
+/// and now also in the settings tab, where a toggle that only takes effect
+/// after a restart is a toggle people press twice and then distrust — so
+/// the handler is always installed and asks this on each blur.
+#[derive(Clone)]
+pub struct HideOnBlur(Arc<AtomicBool>);
+
+impl HideOnBlur {
+    pub fn new(enabled: bool) -> Self {
+        Self(Arc::new(AtomicBool::new(enabled)))
+    }
+
+    pub fn set(&self, enabled: bool) {
+        self.0.store(enabled, Ordering::Relaxed);
+    }
+
+    pub fn get(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
 /// One-shot blur suppression: arm() before deliberately handing focus to
 /// another app (e.g. opening config.json in an editor) so the very next
 /// blur does not hide the launcher. Subsequent blurs behave normally.
@@ -183,8 +205,27 @@ fn show_launcher_window(window: &tauri::WebviewWindow) {
     SHOWN_AT_MS.store(now_ms(), Ordering::SeqCst);
     let _ = window.center();
     let _ = window.show();
-    let _ = window.set_focus();
+    // Focus on the window's own UI thread, queued after show() so the HWND is
+    // visible by then. The callers can be the double-tap hook thread, where
+    // the thread-input attach in force_keyboard_focus and tao's set_focus
+    // would both act from the wrong thread.
+    let w = window.clone();
+    if window
+        .run_on_main_thread(move || focus_launcher_window(&w))
+        .is_err()
+    {
+        focus_launcher_window(window);
+    }
+}
+
+/// Our own focus trick goes first, tao's `set_focus` second: when the window
+/// is not foreground, tao's fallback injects a synthetic Alt press, which
+/// (WS_SYSMENU is kept on undecorated windows) puts the window into keyboard
+/// menu mode where the modal loop swallows mouse clicks. `set_focus` is a
+/// no-op once `force_keyboard_focus` has made us the foreground window.
+fn focus_launcher_window(window: &tauri::WebviewWindow) {
     force_keyboard_focus(window);
+    let _ = window.set_focus();
     let _ = window.emit("conduit://focus-search", ());
 }
 
@@ -251,9 +292,11 @@ fn restore_foreground(_window: &tauri::WebviewWindow) {}
 /// when summoned from the keyboard hook (the double-tapped Ctrl went to the
 /// foreground app, not to us). Attach to the foreground thread's input queue
 /// so SetForegroundWindow succeeds and typing lands in the launcher at once.
+/// The attaching thread must be the window's own UI thread, not the caller
+/// (which may be the keyboard hook thread), or the attach does nothing useful.
 #[cfg(windows)]
 fn force_keyboard_focus(window: &tauri::WebviewWindow) {
-    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::System::Threading::AttachThreadInput;
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
     };
@@ -268,7 +311,7 @@ fn force_keyboard_focus(window: &tauri::WebviewWindow) {
             return;
         }
         let foreground_thread = GetWindowThreadProcessId(foreground, None);
-        let this_thread = GetCurrentThreadId();
+        let this_thread = GetWindowThreadProcessId(hwnd, None);
         let attached = foreground_thread != 0
             && foreground_thread != this_thread
             && AttachThreadInput(this_thread, foreground_thread, true).as_bool();
@@ -285,18 +328,73 @@ fn force_keyboard_focus(window: &tauri::WebviewWindow) {
 #[cfg(not(windows))]
 fn force_keyboard_focus(_window: &tauri::WebviewWindow) {}
 
+#[cfg(windows)]
+const KEYBOARD_MENU_SUBCLASS_ID: usize = 0x434F_4E44; // "COND"
+
+#[cfg(windows)]
+unsafe extern "system" fn keyboard_menu_subclass_proc(
+    hwnd: windows::Win32::Foundation::HWND,
+    msg: u32,
+    wparam: windows::Win32::Foundation::WPARAM,
+    lparam: windows::Win32::Foundation::LPARAM,
+    _subclass_id: usize,
+    _ref_data: usize,
+) -> windows::Win32::Foundation::LRESULT {
+    use windows::Win32::Foundation::LRESULT;
+    use windows::Win32::UI::Shell::DefSubclassProc;
+    use windows::Win32::UI::WindowsAndMessaging::{SC_KEYMENU, WM_SYSCOMMAND};
+
+    if msg == WM_SYSCOMMAND && (wparam.0 & 0xFFF0) as u32 == SC_KEYMENU {
+        return LRESULT(0);
+    }
+    DefSubclassProc(hwnd, msg, wparam, lparam)
+}
+
+/// The launcher has no menu, so keyboard menu mode (a lone Alt press, e.g.
+/// from the Alt+Space hotkey or a synthetic Alt) can only do harm: its modal
+/// loop eats mouse clicks until a few of them dismiss it. Swallow SC_KEYMENU;
+/// Alt+F4 (SC_CLOSE) and the other system commands are unaffected.
+#[cfg(windows)]
+fn suppress_keyboard_menu(window: &tauri::WebviewWindow) {
+    use windows::Win32::UI::Shell::SetWindowSubclass;
+
+    // The subclass must be installed from the thread that owns the window.
+    // HWND is not Send, so resolve it inside the closure.
+    let w = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let Ok(hwnd) = w.hwnd() else {
+            return;
+        };
+        unsafe {
+            let _ = SetWindowSubclass(
+                hwnd,
+                Some(keyboard_menu_subclass_proc),
+                KEYBOARD_MENU_SUBCLASS_ID,
+                0,
+            );
+        }
+    });
+}
+
+#[cfg(not(windows))]
+fn suppress_keyboard_menu(_window: &tauri::WebviewWindow) {}
+
 pub fn setup_main_window(app: &AppHandle, window_config: &WindowConfig) -> anyhow::Result<()> {
     let window = app
         .get_webview_window("main")
         .expect("main window not found");
+
+    suppress_keyboard_menu(&window);
 
     let pin_state = PinState::default();
     app.manage(pin_state.clone());
     let blur_suppression = BlurSuppression::default();
     app.manage(blur_suppression.clone());
     app.manage(ResolvedTheme::default());
+    let hide_on_blur = HideOnBlur::new(window_config.hide_on_blur);
+    app.manage(hide_on_blur.clone());
 
-    if window_config.hide_on_blur {
+    {
         let win_clone = window.clone();
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::Focused(false) = event {
@@ -307,7 +405,8 @@ pub fn setup_main_window(app: &AppHandle, window_config: &WindowConfig) -> anyho
                 // A blur right after a show is stale — the queued Focused(false)
                 // from the previous hide arriving late — and must not close
                 // the window the user just re-summoned.
-                if pin_state.allows_auto_hide()
+                if hide_on_blur.get()
+                    && pin_state.allows_auto_hide()
                     && !foreground_is_own_process()
                     && !blur_suppression.consume()
                     && now_ms().saturating_sub(SHOWN_AT_MS.load(Ordering::SeqCst)) > BLUR_GRACE_MS

@@ -38,9 +38,51 @@ pub enum ResultIcon {
     Base64(String),
 }
 
+/// Something a result can hand to a tool window.
+///
+/// Not a field on `SearchResult`: a payload is derived from the result on
+/// demand (see `ConduitPlugin::payload`), so it never has to cross the IPC
+/// and every plugin that has nothing to send says nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Payload {
+    /// What kind of thing this is — matched against an app's `accepts`.
+    /// "text" and "color" today; a package may invent its own.
+    pub kind: String,
+    pub value: String,
+}
+
+impl Payload {
+    pub fn text(value: impl Into<String>) -> Self {
+        Self { kind: "text".into(), value: value.into() }
+    }
+
+    pub fn color(value: impl Into<String>) -> Self {
+        Self { kind: "color".into(), value: value.into() }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Action {
     pub id: String,
     pub title: String,
     pub shortcut: Option<String>,
+}
+
+/// A registered plugin as the settings tab sees it: the manifest said in
+/// the UI language, plus the on/off state that tab edits.
+///
+/// Separate from `PluginManifest` because the two are written for
+/// different readers. A manifest is source: its `name` and `description`
+/// sit next to the code, in English, and nothing shows them to anyone.
+/// This is a listing, so the wording comes from `locales/` like every
+/// other string a user reads.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginInfo {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub icon: String,
+    pub keyword: Option<String>,
+    pub keyword_only: bool,
+    pub enabled: bool,
 }

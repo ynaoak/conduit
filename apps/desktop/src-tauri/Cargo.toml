@@ -1,8 +1,9 @@
 [package]
 name = "conduit"
-version = "0.2.0"
+version = "0.3.1"
 description = "A Raycast-style launcher for Windows"
 authors = ["yamadanaoaki"]
+license = "PolyForm-Noncommercial-1.0.0"
 edition = "2021"
 
 [lib]
@@ -43,6 +44,9 @@ base64 = "0.22"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 gif = "0.14"
+ssh-key = { version = "0.6.7", features = ["ed25519", "rsa", "encryption", "getrandom"] }
+sha2 = "0.10"
+rand_chacha = "0.3"
 
 # The system color sampler. Versions match what tao/wry already pull in, so
 # these add no crates to the tree — they only make the types nameable here.

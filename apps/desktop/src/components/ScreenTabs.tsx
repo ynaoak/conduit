@@ -17,6 +17,7 @@ const TABS: { screen: Screen; icon: string; label: string }[] = [
   { screen: "workflows", icon: "deployed_code", label: "workflows" },
   { screen: "launcher", icon: "rocket_launch", label: "launcher" },
   { screen: "keybindings", icon: "keyboard", label: "keybindings" },
+  { screen: "settings", icon: "tune", label: "settings" },
   { screen: "about", icon: "info", label: "about" },
 ];
 

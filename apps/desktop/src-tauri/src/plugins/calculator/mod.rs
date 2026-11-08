@@ -17,7 +17,7 @@ impl CalculatorPlugin {
                 id: "conduit.calculator".into(),
                 name: "Calculator".into(),
                 description: "Evaluate math expressions".into(),
-                icon: "calculator".into(),
+                icon: "calculate".into(),
                 keyword: Some("=".into()),
                 keyword_only: false,
             },

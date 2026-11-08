@@ -53,6 +53,12 @@ pub struct WebAppDef {
     /// knows it needs the room (a two-column table, a side-by-side
     /// comparison) says so; everything else gets the default, and a
     /// window the user resized is theirs from then on.
+    /// Kinds of payload this app can be handed ("text", "color"). An app
+    /// that lists none is never offered as a destination — which is the
+    /// right default: most tools have nothing sensible to do with someone
+    /// else's clipboard line.
+    #[serde(default)]
+    pub accepts: Vec<String>,
     #[serde(default)]
     pub width: Option<f64>,
     #[serde(default)]
@@ -155,7 +161,7 @@ impl WorkflowsPlugin {
                 id: "conduit.workflows".into(),
                 name: "Workflows".into(),
                 description: "Web apps imported from workflow packages".into(),
-                icon: "workflow".into(),
+                icon: "deployed_code".into(),
                 keyword: None,
                 keyword_only: false,
             },

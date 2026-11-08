@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 
-/** One frame pushed from Rust (see src-tauri/src/loupe.rs) */
+/** One frame pushed from Rust (see src-tauri/src/loupe.rs).
+ *  `pixels` is `grid * grid` colors as six hex digits each, packed into
+ *  one string — at sixty frames a second, an array of short strings is
+ *  most of the cost of sending it. */
 interface Frame {
-  pixels: string[];
+  pixels: string;
   grid: number;
   center: string;
   ink: string;
@@ -39,8 +42,9 @@ export function Loupe() {
     // instead of being smoothed into a blur.
     canvas.width = frame.grid;
     canvas.height = frame.grid;
-    for (let i = 0; i < frame.pixels.length; i++) {
-      context.fillStyle = frame.pixels[i];
+    const count = frame.grid * frame.grid;
+    for (let i = 0; i < count; i++) {
+      context.fillStyle = "#" + frame.pixels.slice(i * 6, i * 6 + 6);
       context.fillRect(i % frame.grid, Math.floor(i / frame.grid), 1, 1);
     }
   }, [frame]);

@@ -118,16 +118,20 @@ fn lookup(lang_index: usize, section: &str, key: &str) -> Option<&'static str> {
         .map(|s| s.as_str())
 }
 
+/// `t`, but a missing key is reported rather than papered over. For the
+/// callers that have a better fallback than the key itself — a plugin's
+/// manifest carries English name and description right next to the code,
+/// and showing those beats showing `pkg_file_search`.
+pub fn t_opt(section: &str, key: &str) -> Option<&'static str> {
+    let index = CURRENT.load(Ordering::Relaxed);
+    lookup(index, section, key)
+        .or_else(|| index_of(FALLBACK_LANG).and_then(|fallback| lookup(fallback, section, key)))
+}
+
 /// `t("plugins", "copy_result")` — the string for the current language.
 pub fn t(section: &str, key: &str) -> &'static str {
-    let index = CURRENT.load(Ordering::Relaxed);
-    if let Some(value) = lookup(index, section, key) {
+    if let Some(value) = t_opt(section, key) {
         return value;
-    }
-    if let Some(fallback) = index_of(FALLBACK_LANG) {
-        if let Some(value) = lookup(fallback, section, key) {
-            return value;
-        }
     }
     // Not `key` itself: that borrows the caller's &str, and callers want a
     // 'static. Leaking one string per missing key is bounded by the key

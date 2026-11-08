@@ -199,12 +199,17 @@ function card(capture) {
 
   const actions = document.createElement("div");
   actions.className = "actions";
-  for (const [command, key, fallback] of [
+  // Editing is for stills: a canvas has nothing to offer a recording.
+  const commands = [
     ["copy_capture", "capture_copy", "コピー"],
     ["open_capture", "capture_open", "開く"],
     ["reveal_capture", "capture_reveal", "フォルダで表示"],
     ["delete_capture", "capture_delete", "削除"],
-  ]) {
+  ];
+  if (capture.kind !== "video") {
+    commands.splice(1, 0, ["edit_capture", "capture_edit", "編集"]);
+  }
+  for (const [command, key, fallback] of commands) {
     const button = document.createElement("button");
     button.type = "button";
     button.textContent = t(key, fallback);

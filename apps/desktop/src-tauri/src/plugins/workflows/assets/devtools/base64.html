@@ -178,6 +178,16 @@ function convert(direction) {
   }
 }
 
+
+// Something the launcher sent here (tool_window.rs injects it when a
+// result is handed to this window). Absent on a plain launch, which is
+// the empty page this tool has always opened as.
+const SENT = window.__conduitInput;
+if (SENT && SENT.kind === "text") {
+  $("input").value = SENT.value;
+  status_(t("base64_received", "受け取りました。エンコードかデコードを選んでください"));
+}
+
 $("encode").onclick = () => convert("encode");
 $("decode").onclick = () => convert("decode");
 $("copy-input").onclick = () => copy($("input").value);

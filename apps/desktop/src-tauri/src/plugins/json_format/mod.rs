@@ -84,7 +84,7 @@ impl JsonFormatPlugin {
                 id: PLUGIN_ID.into(),
                 name: "JSON".into(),
                 description: "Pretty-print and minify JSON".into(),
-                icon: "json".into(),
+                icon: "data_object".into(),
                 keyword: Some("json".into()),
                 // Bare numbers and quoted words are valid JSON, so joining the
                 // general fan-out would answer queries like "123" with a JSON

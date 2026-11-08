@@ -10,7 +10,11 @@ use std::sync::Mutex;
 
 use tokio::sync::oneshot;
 use windows::Win32::Foundation::{LPARAM, LRESULT, POINT, WPARAM};
-use windows::Win32::Graphics::Gdi::{GetDC, GetPixel, ReleaseDC, CLR_INVALID};
+use windows::Win32::Graphics::Gdi::{
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, GetPixel,
+    ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CLR_INVALID, DIB_RGB_COLORS,
+    HGDIOBJ, SRCCOPY,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetCursorPos, GetMessageW, PostQuitMessage, SetWindowsHookExW, UnhookWindowsHookEx,
     HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN,
@@ -113,38 +117,89 @@ pub fn pixel_at(x: i32, y: i32) -> Option<Rgb> {
     }
 }
 
-/// Read a square of pixels for the magnifier, holding one device context for
-/// the whole square rather than acquiring one per pixel.
+/// Read a square of pixels for the magnifier in one blit.
+///
+/// `GetPixel` reads the screen device context a pixel at a time, and each
+/// of those is a readback that costs on the order of a millisecond. Two
+/// hundred of them per frame is what turns a magnifier into a slideshow —
+/// so the region is copied into a memory bitmap once, and read out of
+/// ordinary memory afterwards.
+///
+/// The blit is a plain `SRCCOPY`: `CAPTUREBLT` would also pick up layered
+/// windows, but it makes the screen flicker on some machines, which is not
+/// a trade worth making sixty times a second.
 ///
 /// Pixels off the edge of the desktop come back black; the magnifier draws
-/// them as-is, which is what a user sees when aiming at a screen corner.
+/// them as-is, which is what a user sees aiming at a screen corner.
 pub fn capture_square(center_x: i32, center_y: i32, size: u32) -> Vec<Rgb> {
     let size = size.max(1) as i32;
     let half = size / 2;
-    let mut pixels = Vec::with_capacity((size * size) as usize);
+    let count = (size * size) as usize;
+
     unsafe {
-        let dc = GetDC(None);
-        if dc.is_invalid() {
-            return pixels;
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return Vec::new();
         }
-        for row in 0..size {
-            for column in 0..size {
-                let value = GetPixel(dc, center_x - half + column, center_y - half + row);
-                let raw = value.0;
-                pixels.push(if raw == CLR_INVALID {
-                    Rgb::new(0, 0, 0)
-                } else {
-                    Rgb::new(
-                        (raw & 0xff) as u8,
-                        ((raw >> 8) & 0xff) as u8,
-                        ((raw >> 16) & 0xff) as u8,
-                    )
-                });
+        let memory = CreateCompatibleDC(Some(screen));
+        if memory.is_invalid() {
+            ReleaseDC(None, screen);
+            return Vec::new();
+        }
+
+        // A negative height asks for a top-down bitmap, so the rows arrive
+        // in the order they are read rather than bottom-up.
+        let info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: size,
+                biHeight: -size,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let mut bits: *mut std::ffi::c_void = std::ptr::null_mut();
+        let bitmap = CreateDIBSection(Some(memory), &info, DIB_RGB_COLORS, &mut bits, None, 0);
+        let Ok(bitmap) = bitmap else {
+            let _ = DeleteDC(memory);
+            ReleaseDC(None, screen);
+            return Vec::new();
+        };
+
+        let previous = SelectObject(memory, HGDIOBJ(bitmap.0));
+        let copied = BitBlt(
+            memory,
+            0,
+            0,
+            size,
+            size,
+            Some(screen),
+            center_x - half,
+            center_y - half,
+            SRCCOPY,
+        )
+        .is_ok();
+
+        let mut pixels = Vec::with_capacity(count);
+        if copied && !bits.is_null() {
+            // 32-bit DIB rows are BGRX and already 4-byte aligned, so the
+            // whole square is one contiguous run.
+            let raw = std::slice::from_raw_parts(bits as *const u8, count * 4);
+            for pixel in raw.chunks_exact(4) {
+                pixels.push(Rgb::new(pixel[2], pixel[1], pixel[0]));
             }
         }
-        ReleaseDC(None, dc);
+
+        SelectObject(memory, previous);
+        let _ = DeleteObject(HGDIOBJ(bitmap.0));
+        let _ = DeleteDC(memory);
+        ReleaseDC(None, screen);
+        pixels
     }
-    pixels
 }
 
 pub fn cursor_position() -> Option<(i32, i32)> {

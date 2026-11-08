@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AppConfig,
   PinnedItem,
+  PluginInfo,
   SearchResult,
   WorkflowListing,
 } from "./types";
@@ -16,6 +17,17 @@ export async function executeAction(
   actionId?: string,
 ): Promise<void> {
   return invoke("execute_action", { pluginId, resultId, actionId });
+}
+
+/** Hand a result to a tool window. The payload is re-derived on the Rust
+ *  side from the plugin and result id, so nothing about the value travels
+ *  through here. */
+export async function sendToTool(
+  pluginId: string,
+  resultId: string,
+  actionId: string,
+): Promise<void> {
+  return invoke("send_to_tool", { pluginId, resultId, actionId });
 }
 
 export async function getConfig(): Promise<AppConfig> {
@@ -128,6 +140,13 @@ export async function exportWorkflow(id: string, dest: string): Promise<string> 
 
 export async function deleteWorkflow(id: string): Promise<void> {
   return invoke("delete_workflow", { id });
+}
+
+/** Every registered plugin with its on/off state, for the settings tab
+ *  and the keyword chips. Asked of the registry, so it lists what this
+ *  build ships rather than what config.json happens to mention. */
+export async function listPlugins(): Promise<PluginInfo[]> {
+  return invoke<PluginInfo[]>("list_plugins");
 }
 
 /** Enumerate a plugin's registered entries (browsing UI, not search) */

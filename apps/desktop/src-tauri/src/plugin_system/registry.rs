@@ -3,13 +3,27 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::traits::ConduitPlugin;
-use super::types::SearchResult;
-use crate::config::ConfigState;
+use super::types::{Payload, PluginInfo, SearchResult};
+use crate::config::{AppConfig, ConfigState};
 
 #[derive(Clone)]
 pub struct PluginRegistry {
     plugins: Arc<RwLock<HashMap<String, Box<dyn ConduitPlugin>>>>,
     config: ConfigState,
+}
+
+/// A plugin's user-visible wording: `plugins.pkg_<id>` in the locale
+/// files, falling back to the manifest. `conduit.file-search` reads
+/// `pkg_file_search` and `pkg_file_search_desc`.
+fn localized(id: &str, suffix: &str, fallback: &str) -> String {
+    let key = format!(
+        "pkg_{}{}",
+        id.trim_start_matches("conduit.").replace('-', "_"),
+        suffix
+    );
+    crate::i18n::t_opt("plugins", &key)
+        .unwrap_or(fallback)
+        .to_string()
 }
 
 impl PluginRegistry {
@@ -46,6 +60,13 @@ impl PluginRegistry {
         }
     }
 
+    /// Absent means on. `config.plugins.enabled` holds overrides, not a
+    /// roster: a plugin shipped by a newer build would otherwise arrive
+    /// switched off for everyone whose config.json predates it.
+    fn is_enabled(config: &AppConfig, id: &str) -> bool {
+        config.plugins.enabled.get(id).copied().unwrap_or(true)
+    }
+
     pub async fn search(&self, query: &str) -> Vec<SearchResult> {
         let config = self.config.get().await;
         let plugins = self.plugins.read().await;
@@ -62,7 +83,7 @@ impl PluginRegistry {
         let mut declined: Option<String> = None;
         for plugin in plugins.values() {
             let id = &plugin.manifest().id;
-            if !config.plugins.enabled.get(id).copied().unwrap_or(true) {
+            if !Self::is_enabled(&config, id) {
                 continue;
             }
             if let Some(ref kw) = plugin.manifest().keyword {
@@ -81,7 +102,7 @@ impl PluginRegistry {
         let mut all_results = Vec::new();
         for plugin in plugins.values() {
             let id = &plugin.manifest().id;
-            if !config.plugins.enabled.get(id).copied().unwrap_or(true) {
+            if !Self::is_enabled(&config, id) {
                 continue;
             }
             if plugin.manifest().keyword_only {
@@ -103,11 +124,49 @@ impl PluginRegistry {
         all_results
     }
 
+    /// Every registered plugin, for the settings tab: what it is called,
+    /// what it answers to, and whether it is on.
+    ///
+    /// Ordered by id rather than by name — the map iterates in whatever
+    /// order it likes, and a settings list that reshuffles itself between
+    /// visits is unusable. Id order is also language-stable, which an
+    /// order by localized name would not be.
+    pub async fn listing(&self) -> Vec<PluginInfo> {
+        let config = self.config.get().await;
+        let plugins = self.plugins.read().await;
+        let mut listing: Vec<PluginInfo> = plugins
+            .values()
+            .map(|plugin| {
+                let manifest = plugin.manifest();
+                PluginInfo {
+                    name: localized(&manifest.id, "", &manifest.name),
+                    description: localized(&manifest.id, "_desc", &manifest.description),
+                    icon: manifest.icon.clone(),
+                    keyword: manifest.keyword.clone(),
+                    keyword_only: manifest.keyword_only,
+                    enabled: Self::is_enabled(&config, &manifest.id),
+                    id: manifest.id.clone(),
+                }
+            })
+            .collect();
+        listing.sort_by(|a, b| a.id.cmp(&b.id));
+        listing
+    }
+
     pub async fn browse(&self, plugin_id: &str) -> Vec<SearchResult> {
         let plugins = self.plugins.read().await;
         match plugins.get(plugin_id) {
             Some(plugin) => plugin.browse().await,
             None => vec![],
+        }
+    }
+
+    /// What a result could be sent to another tool as.
+    pub async fn payload(&self, plugin_id: &str, result_id: &str) -> Option<Payload> {
+        let plugins = self.plugins.read().await;
+        match plugins.get(plugin_id) {
+            Some(plugin) => plugin.payload(result_id).await,
+            None => None,
         }
     }
 
@@ -184,7 +243,15 @@ mod tests {
     }
 
     async fn registry_with_plugins() -> PluginRegistry {
-        let dir = std::env::temp_dir().join(format!("conduit-test-{}", std::process::id()));
+        registry_named("default").await
+    }
+
+    /// One registry per name: `ConfigState` writes config.json into the
+    /// directory it is given, and a test that switches a plugin off would
+    /// otherwise switch it off for every test sharing that file.
+    async fn registry_named(name: &str) -> PluginRegistry {
+        let dir = std::env::temp_dir()
+            .join(format!("conduit-test-{}-{}", std::process::id(), name));
         let registry = PluginRegistry::new(crate::config::ConfigState::load(&dir));
         // a keyword plugin (like conduit.json) and a fan-out plugin
         // (like conduit.workflows) whose result names start with the keyword
@@ -195,6 +262,12 @@ mod tests {
             .register(Box::new(FakePlugin::new("fan", None, "JSON 整形 / 圧縮 (app)")))
             .await;
         registry
+    }
+
+    async fn switch_off(registry: &PluginRegistry, id: &str) {
+        let mut config = registry.config.get().await;
+        config.plugins.enabled.insert(id.into(), false);
+        registry.config.update(config).await.unwrap();
     }
 
     /// Bare "json" routes to the keyword plugin, which has nothing to show
@@ -230,5 +303,60 @@ mod tests {
     #[test]
     fn symbolic_keyword_matches_as_a_plain_prefix() {
         assert_eq!(R::keyword_match("=", "=1+2"), Some("1+2".into()));
+    }
+
+    /// Switching a plugin off in the settings tab has to take its keyword
+    /// with it. Otherwise "json …" still routes to a plugin the user
+    /// turned off, and the query dead-ends there.
+    #[tokio::test]
+    async fn a_disabled_plugin_gives_up_its_keyword_too() {
+        let registry = registry_named("disabled-keyword").await;
+        switch_off(&registry, "kw").await;
+
+        let results = registry.search("json {}").await;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].plugin_id, "fan");
+    }
+
+    #[tokio::test]
+    async fn a_disabled_plugin_is_absent_from_the_fan_out() {
+        let registry = registry_named("disabled-fanout").await;
+        switch_off(&registry, "fan").await;
+
+        // "anything" matches no keyword, so this is the general fan-out:
+        // the plugin that is still on answers, the one switched off does not
+        let results = registry.search("anything").await;
+        let ids: Vec<&str> = results.iter().map(|r| r.plugin_id.as_str()).collect();
+        assert_eq!(ids, vec!["kw"]);
+    }
+
+    /// What the settings tab renders: every registered plugin, in the same
+    /// order every time, with an entry that no config has heard of
+    /// reported as on.
+    #[tokio::test]
+    async fn the_listing_covers_every_plugin_and_says_which_are_on() {
+        let registry = registry_named("listing").await;
+        switch_off(&registry, "kw").await;
+
+        let listing = registry.listing().await;
+        let ids: Vec<&str> = listing.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, vec!["fan", "kw"]);
+
+        assert!(listing[0].enabled, "unlisted in config means on");
+        assert!(!listing[1].enabled);
+        assert_eq!(listing[1].keyword.as_deref(), Some("json"));
+    }
+
+    /// Manifest wording is English source next to the code. A plugin the
+    /// locale files know about is named from them; one they do not know
+    /// about still has to be named something.
+    #[test]
+    fn plugin_wording_comes_from_the_locale_files() {
+        assert_eq!(localized("conduit.not-a-plugin", "", "Fallback"), "Fallback");
+        assert_ne!(localized("conduit.file-search", "", "unused"), "unused");
+        assert_ne!(
+            localized("conduit.file-search", "_desc", "unused"),
+            "unused"
+        );
     }
 }

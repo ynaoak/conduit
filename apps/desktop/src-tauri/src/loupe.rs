@@ -13,7 +13,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use tokio::sync::oneshot;
 
 use crate::color::Rgb;
 use crate::screen_color;
@@ -28,14 +29,18 @@ const WINDOW_HEIGHT: f64 = WINDOW_WIDTH + 32.0;
 /// How far from the pointer the window sits, so it never covers the pixel
 /// being aimed at.
 const OFFSET: i32 = 24;
-/// ~20 frames a second: smooth enough to aim with, and far cheaper than
-/// redrawing on every mouse move.
-const FRAME: Duration = Duration::from_millis(50);
+/// The magnifier has to keep up with a hand moving a mouse; anything
+/// slower reads as "it does not follow". Affordable now that a frame is
+/// one blit rather than two hundred screen reads.
+const FRAME: Duration = Duration::from_millis(16);
 
 #[derive(Serialize, Clone)]
 struct Frame {
-    /// Row-major, `GRID * GRID` entries, each `#rrggbb`
-    pixels: Vec<String>,
+    /// Row-major, `GRID * GRID` pixels, six hex digits each and no
+    /// separators. One string rather than an array of them: this crosses
+    /// the IPC sixty times a second, and 225 short JSON strings per frame
+    /// is most of the work in sending it.
+    pixels: String,
     grid: u32,
     /// The color under the pointer — the one a click would take
     center: String,
@@ -52,7 +57,12 @@ pub struct Session {
 
 impl Session {
     /// Open the magnifier, if this platform wants one.
-    pub fn start(app: &AppHandle) -> Self {
+    ///
+    /// A failure to open it is not a reason to abandon the pick: clicking
+    /// still takes a color, it is just harder to aim. It *is* worth
+    /// reporting, though — a pick with no magnifier and no explanation is
+    /// what a silently dropped window looks like from the outside.
+    pub async fn start(app: &AppHandle) -> Self {
         let running = Arc::new(AtomicBool::new(false));
         let session = Self {
             app: app.clone(),
@@ -63,50 +73,40 @@ impl Session {
             return session;
         }
 
-        // `focused(false)` is the load-bearing one: a magnifier that takes
-        // focus would hide the launcher's own window state and, worse,
-        // change what the user is pointing at.
-        let window = WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#loupe".into()))
-            .title("Conduit color loupe")
-            .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
-            .decorations(false)
-            .transparent(true)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .resizable(false)
-            .shadow(false)
-            .focused(false)
-            .visible(false)
-            .build();
-
-        let Ok(window) = window else {
+        if let Err(message) = open_window(app).await {
+            eprintln!("color loupe unavailable: {message}");
             return session;
-        };
-        // The click has to reach whatever is underneath, not the loupe
-        let _ = window.set_ignore_cursor_events(true);
-        let _ = window.set_size(LogicalSize::new(WINDOW_WIDTH, WINDOW_HEIGHT));
+        }
 
         running.store(true, Ordering::SeqCst);
         let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            let mut shown = false;
+        // A plain OS thread, not the async runtime: reading the screen is
+        // blocking work that has no business occupying a tokio worker, and
+        // the loop is a fixed tick rather than anything that awaits.
+        std::thread::spawn(move || {
+            let mut previous: Option<(i32, i32, String)> = None;
             while running.load(Ordering::SeqCst) {
                 if let Some((x, y)) = screen_color::cursor_position() {
                     let pixels = screen_color::capture_square(x, y, GRID);
                     if !pixels.is_empty() {
-                        if let Some(window) = app.get_webview_window(LABEL) {
-                            let _ = window.set_position(PhysicalPosition::new(x + OFFSET, y + OFFSET));
-                            let _ = window.emit_to(LABEL, "conduit://loupe", frame(&pixels));
-                            // Shown only once there is something to show, so
-                            // the first paint is never an empty rectangle
-                            if !shown {
-                                let _ = window.show();
-                                shown = true;
+                        let payload = frame(&pixels);
+                        // Skip the move and the IPC when nothing about the
+                        // frame differs — a still pointer over still pixels
+                        // should cost nothing.
+                        let unchanged = previous
+                            .as_ref()
+                            .is_some_and(|(px, py, pixels)| *px == x && *py == y && *pixels == payload.pixels);
+                        if !unchanged {
+                            if let Some(window) = app.get_webview_window(LABEL) {
+                                let _ = window
+                                    .set_position(PhysicalPosition::new(x + OFFSET, y + OFFSET));
+                                let _ = window.emit_to(LABEL, "conduit://loupe", payload.clone());
                             }
+                            previous = Some((x, y, payload.pixels));
                         }
                     }
                 }
-                tokio::time::sleep(FRAME).await;
+                std::thread::sleep(FRAME);
             }
             if let Some(window) = app.get_webview_window(LABEL) {
                 let _ = window.close();
@@ -127,6 +127,51 @@ impl Session {
     }
 }
 
+/// Create the magnifier window.
+///
+/// On the main thread, like every other window in this app: creating one
+/// from the async runtime is not supported everywhere, and the failure is
+/// a window that never appears rather than an error anyone sees.
+///
+/// Shown as soon as it exists rather than waiting for the first frame. The
+/// wait was there to avoid a flash of empty glass, but it also meant that
+/// anything wrong further down the pipeline showed up as nothing at all.
+async fn open_window(app: &AppHandle) -> Result<(), String> {
+    let (done, built) = oneshot::channel();
+    let handle = app.clone();
+
+    app.run_on_main_thread(move || {
+        // `focused(false)` is the load-bearing one: a magnifier that takes
+        // focus would change what the user is pointing at.
+        let result = WebviewWindowBuilder::new(
+            &handle,
+            LABEL,
+            WebviewUrl::App("index.html#loupe".into()),
+        )
+        .title("Conduit color loupe")
+        .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(false)
+        .focused(false)
+        .build()
+        .map_err(|e| e.to_string())
+        .map(|window| {
+            // The click has to reach whatever is underneath, not the loupe
+            let _ = window.set_ignore_cursor_events(true);
+        });
+        let _ = done.send(result);
+    })
+    .map_err(|e| e.to_string())?;
+
+    built
+        .await
+        .map_err(|_| "the color loupe never opened".to_string())?
+}
+
 /// Build the payload for one frame. Separate from the loop so the shape of
 /// what the window receives can be checked without a screen.
 fn frame(pixels: &[Rgb]) -> Frame {
@@ -134,8 +179,12 @@ fn frame(pixels: &[Rgb]) -> Frame {
         .get(pixels.len() / 2)
         .copied()
         .unwrap_or(Rgb::new(0, 0, 0));
+    let mut packed = String::with_capacity(pixels.len() * 6);
+    for pixel in pixels {
+        packed.push_str(&format!("{:02x}{:02x}{:02x}", pixel.r, pixel.g, pixel.b));
+    }
     Frame {
-        pixels: pixels.iter().map(Rgb::hex).collect(),
+        pixels: packed,
         grid: GRID,
         center: center.hex(),
         ink: center.contrasting_ink().hex(),
@@ -158,8 +207,10 @@ mod tests {
         let frame = frame(&pixels);
         assert_eq!(frame.center, "#ff8800");
         assert_eq!(frame.ink, "#000000", "the label has to stay readable on the swatch");
-        assert_eq!(frame.pixels.len(), (GRID * GRID) as usize);
-        assert_eq!(frame.pixels[middle], "#ff8800");
+        // Six hex digits per pixel, no separators — the window slices it
+        assert_eq!(frame.pixels.len(), (GRID * GRID) as usize * 6);
+        assert_eq!(&frame.pixels[middle * 6..middle * 6 + 6], "ff8800");
+        assert!(frame.pixels.starts_with("000000"), "the rest stays black");
     }
 
     /// An odd grid is what gives the square a middle at all.

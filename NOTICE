@@ -1,0 +1,27 @@
+conduit
+Required Notice: Copyright 2026 yamadanaoaki (https://conduit.ynaoak.dev)
+
+conduit itself is licensed under the PolyForm Noncommercial License 1.0.0; see
+LICENSE. The components listed below are third-party works that keep their own
+licenses, which are not affected by the license of conduit.
+
+--------------------------------------------------------------------------------
+
+Material Symbols / Material Design Icons
+Copyright Google LLC
+Licensed under the Apache License, Version 2.0
+https://github.com/google/material-design-icons
+https://www.apache.org/licenses/LICENSE-2.0
+
+  The SVG path data in apps/desktop/src/components/MaterialIcon.tsx is copied
+  from google/material-design-icons.
+
+--------------------------------------------------------------------------------
+
+Rust crates and npm packages
+
+  conduit links against, and its release binaries embed, third-party Rust crates
+  and JavaScript packages. Each keeps the license it is published under; those
+  licenses are recorded in Cargo.toml / Cargo.lock and package.json /
+  pnpm-lock.yaml and in the packages themselves. None of them is relicensed by
+  LICENSE.

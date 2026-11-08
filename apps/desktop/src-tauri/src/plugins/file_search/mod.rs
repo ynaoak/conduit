@@ -9,6 +9,7 @@ use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::RwLock;
 
+use crate::config::ConfigState;
 use crate::plugin_system::traits::ConduitPlugin;
 use crate::plugin_system::types::*;
 
@@ -31,24 +32,26 @@ struct FileEntry {
 pub struct FileSearchPlugin {
     manifest: PluginManifest,
     app: AppHandle,
+    config: ConfigState,
     /// Fallback index of common user folders, used when Everything is unavailable
     index: Arc<RwLock<Vec<FileEntry>>>,
     matcher: SkimMatcherV2,
 }
 
 impl FileSearchPlugin {
-    pub fn new(app: AppHandle) -> Self {
+    pub fn new(app: AppHandle, config: ConfigState) -> Self {
         Self {
             manifest: PluginManifest {
                 id: "conduit.file-search".into(),
                 name: "File Search".into(),
                 description: "Search files via Everything or the local index".into(),
-                icon: "file".into(),
+                icon: "folder".into(),
                 keyword: Some("f".into()),
                 // es.exe spawns per query; keep it off the general fan-out
                 keyword_only: true,
             },
             app,
+            config,
             index: Arc::new(RwLock::new(Vec::new())),
             matcher: SkimMatcherV2::default(),
         }
@@ -93,13 +96,26 @@ impl FileSearchPlugin {
     }
 }
 
+/// Which program answers an Everything query. Everything ships its
+/// command line tool as a separate download that puts nothing on PATH, so
+/// the bare name only works for someone who placed it there — hence the
+/// setting, and hence the fallback when it is empty.
+fn es_program(configured: &str) -> &str {
+    let configured = configured.trim();
+    if configured.is_empty() {
+        "es.exe"
+    } else {
+        configured
+    }
+}
+
 /// Query Everything via es.exe. Results are exported to a temp file because
 /// es.exe writes stdout in the console codepage (garbles Japanese paths),
 /// while -export-txt writes UTF-8.
-fn es_search(query: &str) -> Option<Vec<PathBuf>> {
+fn es_search(program: &str, query: &str) -> Option<Vec<PathBuf>> {
     let tmp = std::env::temp_dir().join("conduit_es_results.txt");
 
-    let mut cmd = std::process::Command::new("es.exe");
+    let mut cmd = std::process::Command::new(program);
     cmd.args(["-n", "15", "-export-txt"])
         .arg(&tmp)
         .args(query.split_whitespace());
@@ -207,7 +223,10 @@ impl ConduitPlugin for FileSearchPlugin {
 
         // Prefer Everything when available: full-drive instant search
         let owned = query.to_string();
-        if let Ok(Some(paths)) = tokio::task::spawn_blocking(move || es_search(&owned)).await {
+        let program = es_program(&self.config.get().await.search.everything_path).to_string();
+        if let Ok(Some(paths)) =
+            tokio::task::spawn_blocking(move || es_search(&program, &owned)).await
+        {
             return paths
                 .iter()
                 .enumerate()
@@ -267,5 +286,25 @@ impl ConduitPlugin for FileSearchPlugin {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::es_program;
+
+    /// The setting exists because Everything's es.exe is not on PATH after
+    /// a default install. An empty (or blank) value still has to mean
+    /// "try PATH anyway" rather than spawning "".
+    #[test]
+    fn an_unset_everything_path_falls_back_to_the_bare_name() {
+        assert_eq!(es_program(""), "es.exe");
+        assert_eq!(es_program("   "), "es.exe");
+        assert_eq!(
+            es_program(r"C:\Tools\Everything\es.exe"),
+            r"C:\Tools\Everything\es.exe"
+        );
+        // Pasted from a file dialog, newline and all
+        assert_eq!(es_program(" D:\\es.exe\n"), "D:\\es.exe");
     }
 }
