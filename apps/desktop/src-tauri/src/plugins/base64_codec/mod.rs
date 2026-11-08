@@ -93,7 +93,7 @@ impl Base64Plugin {
                 id: PLUGIN_ID.into(),
                 name: "Base64".into(),
                 description: "Encode and decode base64 text".into(),
-                icon: "base64".into(),
+                icon: "code".into(),
                 keyword: Some("b64".into()),
                 // Every string is encodable, so a general fan-out would add a
                 // base64 row to every single query — require the keyword.
@@ -164,6 +164,14 @@ impl ConduitPlugin for Base64Plugin {
         }
 
         results
+    }
+
+    /// The converted text, which is the whole point of the row.
+    async fn payload(&self, result_id: &str) -> Option<Payload> {
+        result_id
+            .strip_prefix(&format!("{}:", PLUGIN_ID))
+            .and_then(|rest| rest.split_once(':'))
+            .map(|(_, value)| Payload::text(value))
     }
 
     async fn execute(&self, result_id: &str, _action_id: &str) -> anyhow::Result<()> {

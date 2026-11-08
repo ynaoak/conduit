@@ -51,7 +51,7 @@ impl ClipboardHistoryPlugin {
                 id: "conduit.clipboard-history".into(),
                 name: "Clipboard History".into(),
                 description: "Search and restore recently copied text".into(),
-                icon: "clipboard".into(),
+                icon: "content_paste".into(),
                 keyword: Some("cb".into()),
                 keyword_only: false,
             },
@@ -155,7 +155,7 @@ impl ConduitPlugin for ClipboardHistoryPlugin {
         if query.is_empty() {
             // Bare "cb" keyword or the default dashboard view: newest first.
             // Scores stay below app favorites (0.9-) and open windows (0.65-)
-            // so the empty-query dashboard reads favorites > windows > clips.
+            // so the empty-query dashboard reads pins > favorites > windows > clips.
             return history
                 .iter()
                 .take(DEFAULT_LISTING)
@@ -183,6 +183,22 @@ impl ConduitPlugin for ClipboardHistoryPlugin {
         });
         results.truncate(DEFAULT_LISTING);
         results
+    }
+
+    /// The line itself. This is the row most worth sending: whatever the
+    /// user copied last is usually what they want counted, decoded or
+    /// formatted.
+    async fn payload(&self, result_id: &str) -> Option<Payload> {
+        let id: u64 = result_id
+            .strip_prefix("conduit.clipboard-history:")
+            .unwrap_or(result_id)
+            .parse()
+            .ok()?;
+        let history = self.history.read().await;
+        history
+            .iter()
+            .find(|entry| entry.hash_id() == id)
+            .map(|entry| Payload::text(entry.text.clone()))
     }
 
     async fn execute(&self, result_id: &str, action_id: &str) -> anyhow::Result<()> {

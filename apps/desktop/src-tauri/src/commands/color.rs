@@ -61,7 +61,7 @@ pub async fn run_pick(
 
     // Aiming at a single pixel needs magnification, on the platforms that
     // do not already provide it.
-    let loupe = crate::loupe::Session::start(app);
+    let loupe = crate::loupe::Session::start(app).await;
     let outcome = screen_color::pick(app).await;
     loupe.stop();
 

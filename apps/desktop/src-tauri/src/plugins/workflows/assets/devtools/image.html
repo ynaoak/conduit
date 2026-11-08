@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title data-i18n="image_title">画像の切り抜き・消しゴム</title>
+<script>
+// The launcher passes its theme mode as ?theme=dark|light|system —
+// tool windows have no IPC, so the URL is the sync channel. "system"
+// (or no param, e.g. opened from a file) follows the OS live.
+(() => {
+  const theme = new URLSearchParams(location.search).get("theme");
+  const media = matchMedia("(prefers-color-scheme: light)");
+  const apply = () => {
+    const light = theme === "light" || (theme !== "dark" && media.matches);
+    document.documentElement.dataset.theme = light ? "light" : "dark";
+  };
+  apply();
+  media.addEventListener("change", apply);
+})();
+</script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    /* the launcher injects --conduit-* (tool_window.rs); the literals are
+       the fallback for running this file outside conduit */
+    --surface: var(--conduit-surface, #0b0a0d);
+    --surface-container: var(--conduit-surface-container, #151318);
+    --surface-high: var(--conduit-surface-high, #1e1b24);
+    --on-surface: var(--conduit-on-surface, #ece9f1);
+    --on-variant: var(--conduit-on-variant, #9d97a8);
+    --primary: var(--conduit-primary, #a678ff);
+    --outline: var(--conduit-outline, #2c2933);
+    --on-primary: #241148; --error: #f2b8b5;
+  }
+  /* light palette, applied by the theme script below */
+  :root[data-theme="light"] {
+    --surface: var(--conduit-surface, #faf8f5);
+    --surface-container: var(--conduit-surface-container, #f1eeea);
+    --surface-high: var(--conduit-surface-high, #e9e6e1);
+    --on-surface: var(--conduit-on-surface, #1f1e1b);
+    --on-variant: var(--conduit-on-variant, #4a4741);
+    --primary: var(--conduit-primary, #8038f8);
+    --outline: var(--conduit-outline, #d5d1ca);
+    --on-primary: #ffffff; --error: #b3261e;
+  }
+  body {
+    background: var(--surface); color: var(--on-surface);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", Roboto,
+      "Noto Sans JP", "Segoe UI", sans-serif; font-size: 14px;
+    display: flex; flex-direction: column; gap: 16px; padding: 16px;
+    /* the window is clipped by the injected chrome, and can now be
+       resized smaller than this page: what does not fit has to scroll */
+    overflow-y: auto; overflow-x: hidden;
+  }
+  h1 { font-size: 16px; font-weight: 500; }
+  h2 { font-size: 13px; font-weight: 500; color: var(--on-variant); margin-bottom: 8px; }
+  section {
+    background: var(--surface-container); border: 1px solid var(--outline);
+    border-radius: 12px; padding: 14px;
+  }
+  input {
+    background: var(--surface); color: var(--on-surface);
+    border: 1px solid var(--outline); border-radius: 8px; padding: 8px 12px;
+    font: 13px Consolas, "Cascadia Mono", monospace; outline: none; width: 100%;
+  }
+  input:focus { border-color: var(--primary); }
+  /* A monospace placeholder in the same font as the content reads as
+     content — which is how an empty box ends up looking filled in.
+     Italic separates them at a glance; the content is never italic. */
+  input::placeholder {
+    color: var(--on-variant); opacity: 0.7; font-style: italic;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+  button {
+    border: none; border-radius: 999px; padding: 7px 16px; font-size: 13px;
+    background: var(--surface-high); color: var(--on-surface); cursor: pointer;
+    flex-shrink: 0;
+  }
+  button.filled { background: var(--primary); color: var(--on-primary); font-weight: 500; }
+  button:hover { filter: brightness(1.12); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td { padding: 4px 0; vertical-align: top; }
+  td:first-child { color: var(--on-variant); width: 7.5em; }
+  td.value { font-family: Consolas, "Cascadia Mono", monospace; user-select: text; }
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .tools { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tools button[aria-pressed="true"] {
+    background: var(--primary); color: var(--on-primary); font-weight: 500;
+  }
+  .field { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--on-variant); }
+  input[type="range"] { width: 110px; accent-color: var(--primary); padding: 0; }
+  /* The board is what makes transparency visible; without it, erased
+     pixels look like whatever the page happens to be painted in. */
+  #board {
+    flex: 1; min-height: 220px; overflow: auto; border-radius: 12px;
+    border: 1px solid var(--outline); display: flex;
+    align-items: center; justify-content: center; padding: 12px;
+    background-color: var(--surface-container);
+    background-image:
+      linear-gradient(45deg, var(--outline) 25%, transparent 25%),
+      linear-gradient(-45deg, var(--outline) 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, var(--outline) 75%),
+      linear-gradient(-45deg, transparent 75%, var(--outline) 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+  #stage { position: relative; line-height: 0; }
+  canvas { max-width: 100%; display: block; box-shadow: 0 0 0 1px var(--outline); }
+  /* The marquee is drawn over the canvas rather than into it, so a crop
+     that is never applied leaves no trace in the pixels. */
+  #marquee {
+    position: absolute; pointer-events: none; display: none;
+    outline: 1px dashed #fff; box-shadow: 0 0 0 1px #000;
+    background: rgba(128, 160, 255, 0.18);
+  }
+  #empty {
+    font-size: 13px; color: var(--on-variant); text-align: center; line-height: 1.8;
+  }
+  .meta { font-size: 11px; color: var(--on-variant); }
+  #status { font-size: 12px; color: var(--on-variant); min-height: 1.2em; }
+  #status.error { color: var(--error); }
+</style>
+</head>
+<body>
+  <h1 data-i18n="image_title">画像の切り抜き・消しゴム</h1>
+
+  <section>
+    <div class="bar">
+      <button id="open" data-i18n="image_open">画像を開く</button>
+      <input type="file" id="file" accept="image/*" style="display:none" />
+      <span class="meta" id="meta"></span>
+    </div>
+  </section>
+
+  <section style="display:flex; flex-direction:column; gap:10px; flex:1; min-height:0">
+    <div class="bar">
+      <div class="tools">
+        <button id="tool-crop" data-tool="crop" aria-pressed="true" data-i18n="image_tool_crop">矩形で切り抜き</button>
+        <button id="tool-erase" data-tool="erase" aria-pressed="false" data-i18n="image_tool_erase">消しゴム</button>
+        <button id="tool-erase-rect" data-tool="erase-rect" aria-pressed="false" data-i18n="image_tool_erase_rect">矩形で消す</button>
+        <button id="tool-key" data-tool="key" aria-pressed="false" data-i18n="image_tool_key">色を透過</button>
+      </div>
+      <span style="flex:1"></span>
+      <label class="field" id="size-field">
+        <span data-i18n="image_brush">太さ</span>
+        <input type="range" id="size" min="4" max="120" step="2" value="28" />
+        <span id="size-value">28</span>
+      </label>
+      <label class="field" id="tolerance-field" style="display:none">
+        <span data-i18n="image_tolerance">許容差</span>
+        <input type="range" id="tolerance" min="0" max="120" step="1" value="24" />
+        <span id="tolerance-value">24</span>
+      </label>
+    </div>
+
+    <div id="board">
+      <div id="empty" data-i18n="image_empty">画像を開くか、ここにドロップ、または Ctrl+V で貼り付け</div>
+      <div id="stage" style="display:none">
+        <canvas id="canvas"></canvas>
+        <div id="marquee"></div>
+      </div>
+    </div>
+
+    <div class="bar">
+      <button id="undo" data-i18n="image_undo" disabled>元に戻す</button>
+      <span style="flex:1"></span>
+      <button id="copy" data-i18n="image_copy" disabled>コピー</button>
+      <button class="filled" id="save" data-i18n="image_save" disabled>保存</button>
+    </div>
+  </section>
+
+  <div id="status"></div>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const S = window.__conduitStrings || {};
+const t = (key, fallback) => S[key] || fallback;
+const status_ = (msg, isError) => {
+  const el = $("status");
+  el.textContent = msg;
+  el.className = isError ? "error" : "";
+};
+
+const IPC = window.__TAURI_INTERNALS__;
+const invoke = (cmd, args) =>
+  IPC ? IPC.invoke(cmd, args || {}) : Promise.reject(new Error(t("image_no_ipc", "conduit の中から開いてください")));
+
+const canvas = $("canvas");
+const ctx = canvas.getContext("2d", { willReadFrequently: true });
+let tool = "crop";
+/** Snapshots taken before each change. Bounded: a long session on a large
+ *  image would otherwise hold every intermediate state in memory. */
+const history = [];
+const HISTORY_MAX = 20;
+
+function setTool(next) {
+  tool = next;
+  for (const button of document.querySelectorAll("[data-tool]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.tool === next));
+  }
+  $("size-field").style.display = next === "erase" ? "" : "none";
+  $("tolerance-field").style.display = next === "key" ? "" : "none";
+  hideMarquee();
+}
+
+function hasImage() {
+  return canvas.width > 0 && canvas.height > 0 && $("stage").style.display !== "none";
+}
+
+function refreshMeta() {
+  $("meta").textContent = hasImage() ? canvas.width + " x " + canvas.height : "";
+  for (const id of ["copy", "save"]) $(id).disabled = !hasImage();
+  $("undo").disabled = history.length === 0;
+}
+
+function remember() {
+  if (!hasImage()) return;
+  history.push(ctx.getImageData(0, 0, canvas.width, canvas.height));
+  if (history.length > HISTORY_MAX) history.shift();
+  refreshMeta();
+}
+
+$("undo").onclick = () => {
+  const previous = history.pop();
+  if (!previous) return;
+  canvas.width = previous.width;
+  canvas.height = previous.height;
+  ctx.putImageData(previous, 0, 0);
+  refreshMeta();
+  status_("");
+};
+
+function load(image) {
+  canvas.width = image.width;
+  canvas.height = image.height;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0);
+  history.length = 0;
+  $("empty").style.display = "none";
+  $("stage").style.display = "";
+  refreshMeta();
+  status_("");
+}
+
+function loadFromUrl(url) {
+  const image = new Image();
+  image.onload = () => load(image);
+  image.onerror = () => status_(t("image_load_failed", "画像を読み込めませんでした"), true);
+  image.src = url;
+}
+
+function loadFromFile(file) {
+  if (!file || !/^image\//.test(file.type)) {
+    status_(t("image_not_an_image", "画像ファイルではありません"), true);
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => loadFromUrl(String(reader.result));
+  reader.onerror = () => status_(t("image_load_failed", "画像を読み込めませんでした"), true);
+  reader.readAsDataURL(file);
+}
+
+$("open").onclick = () => $("file").click();
+$("file").onchange = () => loadFromFile($("file").files[0]);
+
+// Paste and drop are the two ways a picture is already in someone's hand.
+// (Tool windows are created with Tauri's own drag-drop handling off, so
+// the page sees these events at all — see tool_window.rs.)
+document.addEventListener("paste", (event) => {
+  const item = [...(event.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+  if (!item) return;
+  event.preventDefault();
+  loadFromFile(item.getAsFile());
+});
+for (const name of ["dragenter", "dragover"]) {
+  document.addEventListener(name, (e) => { e.preventDefault(); });
+}
+document.addEventListener("drop", (event) => {
+  event.preventDefault();
+  const file = event.dataTransfer?.files?.[0];
+  if (file) loadFromFile(file);
+});
+
+// --- pointer work -------------------------------------------------------
+
+/** Display pixels to image pixels: the canvas is scaled to fit the board,
+ *  so everything the pointer reports has to be divided back out or the
+ *  crop lands somewhere other than where it was drawn. */
+function toImage(event) {
+  const box = canvas.getBoundingClientRect();
+  return {
+    x: Math.round((event.clientX - box.left) * (canvas.width / box.width)),
+    y: Math.round((event.clientY - box.top) * (canvas.height / box.height)),
+  };
+}
+
+let drag = null;
+
+function showMarquee(a, b) {
+  const box = canvas.getBoundingClientRect();
+  const scale = box.width / canvas.width;
+  const left = Math.min(a.x, b.x) * scale;
+  const top = Math.min(a.y, b.y) * scale;
+  const marquee = $("marquee");
+  marquee.style.display = "block";
+  marquee.style.left = left + "px";
+  marquee.style.top = top + "px";
+  marquee.style.width = Math.abs(b.x - a.x) * scale + "px";
+  marquee.style.height = Math.abs(b.y - a.y) * scale + "px";
+}
+const hideMarquee = () => { $("marquee").style.display = "none"; };
+
+function eraseAt(point, size) {
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  ctx.beginPath();
+  ctx.arc(point.x, point.y, size / 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (!hasImage()) return;
+  canvas.setPointerCapture(event.pointerId);
+  const at = toImage(event);
+
+  if (tool === "key") {
+    remember();
+    keyOut(at);
+    return;
+  }
+  if (tool === "erase") {
+    remember();
+    drag = { kind: "erase" };
+    eraseAt(at, Number($("size").value));
+    return;
+  }
+  drag = { kind: "rect", from: at, to: at };
+  showMarquee(at, at);
+});
+
+canvas.addEventListener("pointermove", (event) => {
+  if (!drag) return;
+  const at = toImage(event);
+  if (drag.kind === "erase") {
+    eraseAt(at, Number($("size").value));
+    return;
+  }
+  drag.to = at;
+  showMarquee(drag.from, at);
+});
+
+canvas.addEventListener("pointerup", () => {
+  if (!drag) return;
+  const finished = drag;
+  drag = null;
+  hideMarquee();
+  if (finished.kind !== "rect") return;
+
+  const x = Math.max(0, Math.min(finished.from.x, finished.to.x));
+  const y = Math.max(0, Math.min(finished.from.y, finished.to.y));
+  const width = Math.min(canvas.width - x, Math.abs(finished.to.x - finished.from.x));
+  const height = Math.min(canvas.height - y, Math.abs(finished.to.y - finished.from.y));
+  // A click, or a twitch, is not a selection — cropping to nothing would
+  // throw the picture away for a slipped finger.
+  if (width < 4 || height < 4) return;
+
+  remember();
+  if (tool === "erase-rect") {
+    ctx.clearRect(x, y, width, height);
+    return;
+  }
+  const kept = ctx.getImageData(x, y, width, height);
+  canvas.width = width;
+  canvas.height = height;
+  ctx.putImageData(kept, 0, 0);
+  refreshMeta();
+});
+
+/** Make every pixel close to the clicked one transparent.
+ *
+ *  Distance is measured per channel rather than as a sum, so a tolerance
+ *  of 24 means "within 24 of that color", which is what the slider reads
+ *  like — a summed distance would swallow far more than expected. */
+function keyOut(at) {
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  const index = (at.y * canvas.width + at.x) * 4;
+  if (index < 0 || index >= data.length) return;
+  const [r, g, b] = [data[index], data[index + 1], data[index + 2]];
+  const tolerance = Number($("tolerance").value);
+
+  let cleared = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    if (
+      Math.abs(data[i] - r) <= tolerance &&
+      Math.abs(data[i + 1] - g) <= tolerance &&
+      Math.abs(data[i + 2] - b) <= tolerance
+    ) {
+      data[i + 3] = 0;
+      cleared++;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  status_(t("image_keyed", "透過しました") + ": " + cleared.toLocaleString());
+}
+
+// --- out ----------------------------------------------------------------
+
+const dataUrl = () => canvas.toDataURL("image/png");
+
+$("copy").onclick = () => {
+  invoke("copy_image", { dataUrl: dataUrl() })
+    .then(() => status_(t("copied", "コピーしました")))
+    .catch((e) => status_(String(e && e.message ? e.message : e), true));
+};
+
+$("save").onclick = () => {
+  invoke("save_image", { dataUrl: dataUrl(), suggestedName: "image.png" })
+    .then((path) => status_(path ? t("image_saved", "保存しました") + ": " + path
+                                 : t("image_save_cancelled", "保存を中止しました")))
+    .catch((e) => status_(String(e && e.message ? e.message : e), true));
+};
+
+for (const button of document.querySelectorAll("[data-tool]")) {
+  button.onclick = () => setTool(button.dataset.tool);
+}
+$("size").oninput = () => { $("size-value").textContent = $("size").value; };
+$("tolerance").oninput = () => { $("tolerance-value").textContent = $("tolerance").value; };
+document.addEventListener("keydown", (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+    event.preventDefault();
+    $("undo").click();
+  }
+});
+
+// Something the launcher sent here (tool_window.rs injects it when a
+// result is handed to this window). A capture arrives as its id, and the
+// full-size picture is fetched for it — the gallery's thumbnails are for
+// looking at, not for editing.
+const SENT = window.__conduitInput;
+if (SENT && SENT.kind === "image") {
+  status_(t("image_loading", "読み込んでいます…"));
+  invoke("capture_image", { id: SENT.value })
+    .then(loadFromUrl)
+    .catch((e) => status_(String(e && e.message ? e.message : e), true));
+}
+
+setTool("crop");
+refreshMeta();
+</script>
+</body>
+</html>

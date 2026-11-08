@@ -1,17 +1,21 @@
 {
   "name": "conduit",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.1",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --config apps/desktop/vite.config.ts",
-    "build": "tsc -p apps/desktop/tsconfig.json && vite build --config apps/desktop/vite.config.ts",
+    "build": "tsc -p apps/desktop/tsconfig.json && vite build --config apps/desktop/vite.config.ts && node scripts/verification.mjs --check && node scripts/verification.mjs --remind",
     "check:colors": "node scripts/check-color-system.mjs",
+    "checks": "node scripts/verification.mjs",
+    "checks:all": "node scripts/verification.mjs --all",
+    "checks:validate": "node scripts/verification.mjs --check",
+    "dev": "vite --config apps/desktop/vite.config.ts",
     "preview": "vite preview --config apps/desktop/vite.config.ts",
     "tauri": "cd apps/desktop && tauri",
     "web:build": "node apps/web/site/build.mjs",
-    "web:preview": "wrangler dev",
-    "web:deploy": "wrangler deploy"
+    "web:deploy": "wrangler deploy",
+    "web:preview": "wrangler dev"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

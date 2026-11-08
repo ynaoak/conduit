@@ -2,31 +2,43 @@
   "id": "conduit.devtools",
   "name": "Dev Tools",
   "description": "オフラインで動く変換ツール集（組み込み）",
-  "version": "16",
+  "version": "22",
   "apps": [
     {
       "name": "Base64 変換",
       "html": "base64.html",
       "icon": "code",
-      "description": "テキスト ↔ Base64 の相互変換（別ウィンドウ）"
+      "description": "テキスト ↔ Base64 の相互変換（別ウィンドウ）",
+      "accepts": [
+        "text"
+      ]
     },
     {
       "name": "JSON 整形 / 圧縮",
       "html": "json.html",
       "icon": "data_object",
-      "description": "JSON の展開と 1 行化の相互変換（別ウィンドウ）"
+      "description": "JSON の展開と 1 行化の相互変換（別ウィンドウ）",
+      "accepts": [
+        "text"
+      ]
     },
     {
       "name": "Unixtime 変換（タイムスタンプ）",
       "html": "unixtime.html",
       "icon": "schedule",
-      "description": "Unix time ↔ 日時の相互変換（別ウィンドウ）"
+      "description": "Unix time ↔ 日時の相互変換（別ウィンドウ）",
+      "accepts": [
+        "text"
+      ]
     },
     {
       "name": "カラーパレット",
       "html": "color.html",
       "icon": "colorize",
-      "description": "採った色の履歴と HEX / RGB / HSL 変換（別ウィンドウ）"
+      "description": "採った色の履歴と HEX / RGB / HSL 変換（別ウィンドウ）",
+      "accepts": [
+        "color"
+      ]
     },
     {
       "name": "スクリーンショット / 録画",
@@ -42,7 +54,46 @@
       "icon": "palette",
       "description": "基準の色から UI 一式（ベース / アクセント / アクション）をライト・ダーク両方で提案",
       "width": 900,
-      "height": 780
+      "height": 780,
+      "accepts": [
+        "color"
+      ]
+    },
+    {
+      "name": "文字数カウンター",
+      "html": "count.html",
+      "icon": "keyboard",
+      "description": "文字・単語・行・バイト数を数える（別ウィンドウ）",
+      "accepts": [
+        "text"
+      ]
+    },
+    {
+      "name": "パスワード生成",
+      "html": "password.html",
+      "icon": "lock",
+      "description": "条件を選んでランダムなパスワードを作る（別ウィンドウ）",
+      "width": 640,
+      "height": 760
+    },
+    {
+      "name": "SSH 鍵の生成（git 用）",
+      "html": "sshkey.html",
+      "icon": "vpn_key",
+      "description": "git ホストに登録する公開鍵と秘密鍵を作る（別ウィンドウ）",
+      "width": 620,
+      "height": 760
+    },
+    {
+      "name": "画像の切り抜き・消しゴム",
+      "html": "image.html",
+      "icon": "crop",
+      "description": "矩形で切り抜く / 消しゴムで消す / 色を透過する（別ウィンドウ）",
+      "accepts": [
+        "image"
+      ],
+      "width": 900,
+      "height": 720
     }
   ]
 }

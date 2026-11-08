@@ -133,6 +133,19 @@ pub async fn open(app: &AppHandle, workflow_id: &str, html: &str) -> anyhow::Res
     let label = window_label(workflow_id, html);
 
     if let Some(existing) = app.get_webview_window(&label) {
+        // A window that is already up has already been served, so an input
+        // parked for it would sit there unread. Navigating to the same URL
+        // re-runs the protocol handler, which is where the handover
+        // happens; without something waiting, leave the page as it is.
+        if app.state::<crate::send_to::PendingInput>().has(&label) {
+            let theme_mode = match app.state::<ResolvedTheme>().get() {
+                Some(resolved) => resolved.mode,
+                None => app.state::<ConfigState>().get().await.theme.mode,
+            };
+            if let Ok(url) = tool_url(workflow_id, &rel.to_string_lossy(), &theme_mode).parse() {
+                let _ = existing.navigate(url);
+            }
+        }
         let _ = existing.show();
         let _ = existing.set_focus();
         return Ok(());
@@ -163,6 +176,11 @@ pub async fn open(app: &AppHandle, workflow_id: &str, html: &str) -> anyhow::Res
         )
         .title(&title)
         .inner_size(width, height)
+        // Tauri's own drag-and-drop handling swallows the webview's drop
+        // events. A tool that wants a file dropped on it — an image
+        // editor, say — cannot see one otherwise, and nothing here needs
+        // the native handler.
+        .disable_drag_drop_handler()
         .min_inner_size(MIN_WIDTH, MIN_HEIGHT)
         // Match the launcher: no OS title bar, transparent so the CSS
         // rounded corners are real (an opaque window paints square ones)
@@ -268,6 +286,40 @@ const CHROME: &str = r##"<style id="__conduit-chrome-style">
   #__conduit-chrome button:hover {
     background: var(--conduit-surface-high, rgba(128, 128, 128, 0.22));
     color: var(--conduit-on-surface, inherit);
+  }
+
+  /* The card is what scrolls, so its scrollbar is part of the card. The
+     platform default is a wide opaque bar drawn straight across a 28px
+     corner radius, which is the one piece of the window that still looks
+     like it belongs to something else.
+
+     Styled here rather than per page so imported packages get it too:
+     the frame around an app is ours, and that includes this. A page that
+     wants its own can still say so — it only has to be more specific. */
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--conduit-outline, rgba(128, 128, 128, 0.45));
+    border-radius: 999px;
+    /* A transparent border with padding-box clipping is what keeps the
+       thumb off the rounded edge: the track stays 12px wide for an easy
+       target while the thumb reads as a slim pill. */
+    border: 4px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--conduit-on-variant, rgba(128, 128, 128, 0.8));
+    background-clip: padding-box;
+  }
+  /* The little square where two scrollbars meet has no content behind it
+     and paints as a plain block otherwise. */
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 
   /* Resize grips. An undecorated window has no frame to grab, so the
@@ -669,15 +721,25 @@ pub fn serve(
         platform_css(),
         palette_css(app.state::<ResolvedTheme>().get().as_ref())
     );
+    // Anything sent to this window is waiting under its label. Only the
+    // entry document gets it — a stylesheet fetched by the page must not
+    // consume the payload the page is about to look for.
+    let input_script = if is_html(&file) {
+        app.state::<crate::send_to::PendingInput>()
+            .script_for(&window_label(workflow_id, &rel_path.to_string_lossy()))
+    } else {
+        String::new()
+    };
     let head_scripts = format!(
-        "{}{}{}",
+        "{}{}{}{}",
         strings_js(),
         colors_js(workflow_id, || {
             app.state::<crate::color_history::ColorHistoryState>().as_hex_json()
         }),
         captures_js(workflow_id, || {
             app.state::<crate::capture_history::CaptureStore>().as_gallery_json()
-        })
+        }),
+        input_script
     );
     let bytes = match (is_html(&file), String::from_utf8(bytes)) {
         (true, Ok(html)) => inject_chrome(&html, &palette, &head_scripts).into_bytes(),
@@ -914,6 +976,29 @@ mod tests {
     /// have to be in the head — appended at the end of the body they would
     /// arrive after the app has already read an empty object.
     #[test]
+    /// A sent value has to be readable by the time the page's own script
+    /// runs: a tool that reads `window.__conduitInput` on load would see
+    /// nothing if the injection landed after it.
+    #[test]
+    fn a_sent_value_lands_before_the_app_script() {
+        let pending = crate::send_to::PendingInput::default();
+        pending.park(
+            window_label("conduit.devtools", "count.html"),
+            crate::plugin_system::types::Payload::text("sent"),
+        );
+        let input = pending.script_for(&window_label("conduit.devtools", "count.html"));
+        assert!(!input.is_empty(), "the payload was parked under this label");
+
+        let out = inject_chrome(
+            "<html><head><title>t</title></head><body><script>read()</script></body></html>",
+            "<style>p</style>",
+            &format!("<script>strings</script>{input}"),
+        );
+        let at = out.find("__conduitInput").expect("input injected");
+        assert!(at < out.find("<script>read()</script>").unwrap());
+        assert!(at < out.to_lowercase().find("</head>").unwrap());
+    }
+
     fn strings_land_before_the_app_script() {
         let out = inject_chrome(
             "<html><head><title>t</title></HEAD><body><script>read()</script></body></html>",

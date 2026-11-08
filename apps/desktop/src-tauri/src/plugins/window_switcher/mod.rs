@@ -25,7 +25,7 @@ impl WindowSwitcherPlugin {
                 id: "conduit.window-switcher".into(),
                 name: "Window Switcher".into(),
                 description: "Switch to open windows".into(),
-                icon: "window".into(),
+                icon: "select_window".into(),
                 keyword: Some("w".into()),
                 keyword_only: false,
             },

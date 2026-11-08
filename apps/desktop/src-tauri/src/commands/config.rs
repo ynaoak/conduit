@@ -1,6 +1,8 @@
 use tauri::State;
 
 use crate::config::{AppConfig, ConfigState};
+use crate::plugin_system::registry::PluginRegistry;
+use crate::plugin_system::types::PluginInfo;
 
 #[tauri::command]
 pub async fn get_config(state: State<'_, ConfigState>) -> Result<AppConfig, String> {
@@ -11,11 +13,28 @@ pub async fn get_config(state: State<'_, ConfigState>) -> Result<AppConfig, Stri
 pub async fn save_config(
     config: AppConfig,
     state: State<'_, ConfigState>,
+    hide_on_blur: State<'_, crate::window::HideOnBlur>,
 ) -> Result<(), String> {
     // Plugins and the tray read the language from process state, so a
     // saved change has to reach it before the next search runs
     crate::i18n::set(&config.language);
+    // Same for the blur handler: it was installed at startup and holds its
+    // own copy of the switch, so saving alone would leave the setting
+    // right in config.json and wrong in the running window.
+    hide_on_blur.set(config.window.hide_on_blur);
     state.update(config).await.map_err(|e| e.to_string())
+}
+
+/// The registered plugins and their on/off state, for the settings tab.
+///
+/// From the registry rather than from `config.plugins.enabled`: that map
+/// holds only the overrides, so it is empty on a fresh install and says
+/// nothing about what this build actually ships.
+#[tauri::command]
+pub async fn list_plugins(
+    registry: State<'_, PluginRegistry>,
+) -> Result<Vec<PluginInfo>, String> {
+    Ok(registry.listing().await)
 }
 
 /// The language the backend is actually rendering in.

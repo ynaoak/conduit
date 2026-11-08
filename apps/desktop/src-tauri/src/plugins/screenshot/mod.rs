@@ -312,6 +312,24 @@ impl ConduitPlugin for ScreenshotPlugin {
         vec![]
     }
 
+    /// A capture in the history, so it can be sent to the image editor.
+    ///
+    /// The rows that *take* a screenshot are actions with no picture yet,
+    /// and the per-screen rows are the same — only what has already been
+    /// captured can be handed on.
+    async fn payload(&self, result_id: &str) -> Option<Payload> {
+        if result_id.starts_with(SCREEN_PREFIX) {
+            return None;
+        }
+        let id = result_id.strip_prefix(&format!("{}:", PLUGIN_ID))?;
+        let capture = self.captures.get(id)?;
+        // A recording is not something a canvas can edit
+        if !matches!(capture.kind, crate::capture_history::Kind::Image) {
+            return None;
+        }
+        Some(Payload { kind: "image".into(), value: capture.id })
+    }
+
     async fn execute(&self, result_id: &str, action_id: &str) -> anyhow::Result<()> {
         let take = |mode, screen| {
             let app = self.app.clone();

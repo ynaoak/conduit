@@ -302,6 +302,16 @@ for (const button of document.querySelectorAll("[data-copy]")) {
   };
 }
 
+
+// Something the launcher sent here (tool_window.rs injects it when a
+// result is handed to this window). Absent on a plain launch, which is
+// the empty page this tool has always opened as.
+const SENT = window.__conduitInput;
+if (SENT && SENT.kind === "color") {
+  const sent = parseHex(SENT.value);
+  if (sent) current = sent;
+}
+
 show(current);
 </script>
 </body>

@@ -14,6 +14,10 @@ const DEVTOOLS: &[(&str, &str)] = &[
     ("json.html", include_str!("assets/devtools/json.html")),
     ("unixtime.html", include_str!("assets/devtools/unixtime.html")),
     ("color.html", include_str!("assets/devtools/color.html")),
+    ("image.html", include_str!("assets/devtools/image.html")),
+    ("count.html", include_str!("assets/devtools/count.html")),
+    ("password.html", include_str!("assets/devtools/password.html")),
+    ("sshkey.html", include_str!("assets/devtools/sshkey.html")),
     ("capture.html", include_str!("assets/devtools/capture.html")),
     ("theme.html", include_str!("assets/devtools/theme.html")),
 ];

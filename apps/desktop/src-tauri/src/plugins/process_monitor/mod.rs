@@ -51,7 +51,7 @@ impl ProcessMonitorPlugin {
                 id: PLUGIN_ID.into(),
                 name: "Process Monitor".into(),
                 description: "Find the process listening on a port and kill it".into(),
-                icon: "process".into(),
+                icon: "memory".into(),
                 keyword: Some("ps".into()),
                 // Snapshotting every process is heavier than the other
                 // plugins, and kill is destructive — require the keyword

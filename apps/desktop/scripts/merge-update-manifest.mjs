@@ -45,7 +45,13 @@ export function platformOf(name) {
   if (n.endsWith('.app.tar.gz')) {
     if (n.includes('universal')) return 'darwin-universal';
     if (n.includes('aarch64') || n.includes('arm64')) return 'darwin-aarch64';
-    return 'darwin-x86_64';
+    if (n.includes('x86_64') || n.includes('x64') || n.includes('intel')) return 'darwin-x86_64';
+    // No arch marker: tauri v2 tars the .app as just "<Product>.app.tar.gz".
+    // Our CI builds --target universal-apple-darwin (and renames the artifact
+    // to say so, but belt and braces): treat markerless as universal, because
+    // classifying a universal build as x86_64 leaves Apple Silicon — most
+    // Macs — with no darwin-aarch64 key and silently no updates.
+    return 'darwin-universal';
   }
   if (n.endsWith('.appimage')) return 'linux-x86_64';
   return null;
@@ -190,6 +196,15 @@ function selfTest() {
   const archAssets = [{ name: 'Conduit_0.2.0_aarch64.app.tar.gz', url: 'https://x/Conduit_0.2.0_aarch64.app.tar.gz' }];
   const archOut = merge({ version: '0.2.0', platforms: {} }, archAssets, () => 'sig-arm\n').manifest;
   eq(archOut.platforms['darwin-aarch64'].url, archAssets[0].url, 'per-arch mac artifact keys to its arch');
+
+  // tauri v2's markerless "<Product>.app.tar.gz" must be treated as universal
+  // (both arch keys), never as x86_64-only — that stranded Apple Silicon in
+  // v0.2.0 before the CI rename existed.
+  const bareAssets = [{ name: 'Conduit.app.tar.gz', url: 'https://x/Conduit.app.tar.gz' }];
+  const bareOut = merge({ version: '0.2.0', platforms: {} }, bareAssets, () => 'sig-bare\n').manifest;
+  eq(bareOut.platforms['darwin-universal'].url, bareAssets[0].url, 'markerless mac artifact is universal');
+  eq(bareOut.platforms['darwin-aarch64'].url, bareAssets[0].url, 'markerless mac artifact aliases aarch64');
+  eq(bareOut.platforms['darwin-x86_64'].url, bareAssets[0].url, 'markerless mac artifact aliases x86_64');
 
   if (!process.exitCode) console.log('merge-update-manifest self-test: OK');
 }

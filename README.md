@@ -41,4 +41,8 @@ pnpm tauri build
 
 ## License
 
-See [LICENSE](LICENSE).
+[PolyForm Noncommercial License 1.0.0](LICENSE)。個人利用・研究・教育・非営利団体での
+利用は自由で、改変も再配布もできます。商用利用には別途ライセンスが必要です。
+
+同梱している第三者コンポーネント（Material Symbols のアイコンなど）は、それぞれ元の
+ライセンスのままです。詳しくは [NOTICE](NOTICE) を参照してください。

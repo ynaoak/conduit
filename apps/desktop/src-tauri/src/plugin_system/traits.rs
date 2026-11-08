@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::types::{PluginManifest, SearchResult};
+use super::types::{Payload, PluginManifest, SearchResult};
 
 #[async_trait]
 pub trait ConduitPlugin: Send + Sync {
@@ -16,6 +16,16 @@ pub trait ConduitPlugin: Send + Sync {
     /// not search). Plugins with a meaningful catalog override this.
     async fn browse(&self) -> Vec<SearchResult> {
         vec![]
+    }
+
+    /// What this result could be handed to another tool as, if anything.
+    ///
+    /// Answering turns a row into something that can be sent — a copied
+    /// line into the character counter, a picked color into the palette.
+    /// Plugins whose results are actions rather than values (launching an
+    /// app, switching a window) leave this alone.
+    async fn payload(&self, _result_id: &str) -> Option<Payload> {
+        None
     }
 
     /// Execute an action on a result. `action_id` is one of the ids from the

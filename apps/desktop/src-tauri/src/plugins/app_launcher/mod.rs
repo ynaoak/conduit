@@ -22,6 +22,37 @@ const MAX_RESULTS: usize = 10;
 /// Fuzzy score contributes up to 0.9; launch-count bonus up to 0.1
 const COUNT_BONUS_PER_LAUNCH: f64 = 0.005;
 const COUNT_BONUS_CAP: f64 = 0.1;
+/// Empty-query dashboard size (launched apps first, then suggestions)
+const DASHBOARD_APPS: usize = 8;
+
+/// Common apps (display names as Windows localizes them, ja + en) used to
+/// fill the dashboard on a fresh install, roughly in order of demand.
+/// Matched case-insensitively against `AppEntry.name`, exact after trim.
+const SUGGESTED_APPS: &[&str] = &[
+    "エクスプローラー",
+    "File Explorer",
+    "Microsoft Edge",
+    "Google Chrome",
+    "Firefox",
+    "設定",
+    "Settings",
+    "メモ帳",
+    "Notepad",
+    "電卓",
+    "Calculator",
+    "ターミナル",
+    "Windows Terminal",
+    "Terminal",
+    "Visual Studio Code",
+    "Outlook",
+    "Microsoft Teams",
+    "Slack",
+    "Word",
+    "Excel",
+    "Snipping Tool",
+    "ペイント",
+    "Paint",
+];
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -125,7 +156,7 @@ impl AppLauncherPlugin {
                 id: "conduit.app-launcher".into(),
                 name: "Applications".into(),
                 description: "Search and launch applications".into(),
-                icon: "apps".into(),
+                icon: "rocket_launch".into(),
                 keyword: None,
                 keyword_only: false,
             },
@@ -261,6 +292,47 @@ fn scan_all_apps() -> Vec<AppEntry> {
     apps
 }
 
+/// Empty-query picks: launched apps by count desc (`Some(count)`), topped up
+/// to `limit` with `SUGGESTED_APPS` present in `apps` (`None`), list order,
+/// no duplicates.
+fn dashboard_picks<'a>(
+    apps: &'a [AppEntry],
+    counts: &HashMap<String, u32>,
+    limit: usize,
+) -> Vec<(&'a AppEntry, Option<u32>)> {
+    let mut picks: Vec<(&AppEntry, Option<u32>)> = apps
+        .iter()
+        .filter_map(|app| {
+            counts
+                .get(&app.name)
+                .copied()
+                .filter(|&c| c > 0)
+                .map(|c| (app, Some(c)))
+        })
+        .collect();
+    // Stable sort keeps scan order among equal counts
+    picks.sort_by(|a, b| b.1.cmp(&a.1));
+    picks.truncate(limit);
+
+    for suggested in SUGGESTED_APPS {
+        if picks.len() >= limit {
+            break;
+        }
+        let found = apps
+            .iter()
+            .find(|a| a.name.trim().to_lowercase() == suggested.to_lowercase());
+        if let Some(app) = found {
+            if !picks
+                .iter()
+                .any(|(p, _)| std::ptr::eq(*p, app) || p.id() == app.id())
+            {
+                picks.push((app, None));
+            }
+        }
+    }
+    picks
+}
+
 fn load_counts(path: &Option<PathBuf>) -> HashMap<String, u32> {
     let Some(path) = path else {
         return HashMap::new();
@@ -383,29 +455,24 @@ impl ConduitPlugin for AppLauncherPlugin {
 
         // Empty query: CLaunch-style favorites — most launched apps first
         if query.trim().is_empty() {
-            let mut favorites: Vec<(&AppEntry, u32)> = apps
-                .iter()
-                .filter_map(|app| {
-                    counts
-                        .get(&app.name)
-                        .copied()
-                        .filter(|&c| c > 0)
-                        .map(|c| (app, c))
-                })
-                .collect();
-            favorites.sort_by(|a, b| b.1.cmp(&a.1));
-            favorites.truncate(8);
-
-            return favorites
+            return dashboard_picks(&apps, &counts, DASHBOARD_APPS)
                 .iter()
                 .enumerate()
                 .map(|(i, (app, count))| SearchResult {
                     id: app.id(),
                     plugin_id: "conduit.app-launcher".into(),
                     title: app.name.clone(),
-                    subtitle: Some(format!("{} 回起動", count)),
+                    subtitle: Some(match count {
+                        Some(c) => format!("{} 回起動", c),
+                        None => format!(
+                            "{} ・ {}",
+                            crate::i18n::t("plugins", "suggested"),
+                            app.subtitle()
+                        ),
+                    }),
                     icon: self.resolve_icon(app),
-                    score: 0.9 - i as f64 * 0.05,
+                    // Step small enough that all 8 stay above open windows (0.65-)
+                    score: 0.9 - i as f64 * 0.02,
                     actions: app.actions(),
                     match_indices: vec![],
                 })
@@ -448,7 +515,11 @@ impl ConduitPlugin for AppLauncherPlugin {
             })
             .collect();
 
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(MAX_RESULTS);
         results
     }
@@ -513,5 +584,77 @@ impl ConduitPlugin for AppLauncherPlugin {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn app(name: &str) -> AppEntry {
+        AppEntry::new(
+            name.to_string(),
+            LaunchTarget::ShellApp(format!("id.{name}")),
+        )
+    }
+
+    fn counts(pairs: &[(&str, u32)]) -> HashMap<String, u32> {
+        pairs.iter().map(|(n, c)| (n.to_string(), *c)).collect()
+    }
+
+    fn names(picks: &[(&AppEntry, Option<u32>)]) -> Vec<String> {
+        picks.iter().map(|(a, _)| a.name.clone()).collect()
+    }
+
+    #[test]
+    fn launched_apps_come_first_by_count() {
+        let apps = vec![app("Foo"), app("Bar"), app("Notepad")];
+        let picks = dashboard_picks(&apps, &counts(&[("Foo", 2), ("Bar", 5)]), 8);
+        assert_eq!(names(&picks), ["Bar", "Foo", "Notepad"]);
+        assert_eq!(picks[0].1, Some(5));
+        assert_eq!(picks[1].1, Some(2));
+        assert_eq!(picks[2].1, None);
+    }
+
+    #[test]
+    fn suggestions_follow_list_order_not_scan_order() {
+        let apps = vec![app("Excel"), app("Microsoft Edge"), app("電卓")];
+        let picks = dashboard_picks(&apps, &HashMap::new(), 8);
+        assert_eq!(names(&picks), ["Microsoft Edge", "電卓", "Excel"]);
+        assert!(picks.iter().all(|(_, c)| c.is_none()));
+    }
+
+    #[test]
+    fn launched_app_is_not_suggested_again() {
+        let apps = vec![app("Notepad"), app("Slack")];
+        let picks = dashboard_picks(&apps, &counts(&[("Notepad", 1)]), 8);
+        assert_eq!(names(&picks), ["Notepad", "Slack"]);
+        assert_eq!(picks[0].1, Some(1));
+    }
+
+    #[test]
+    fn suggestion_match_is_case_insensitive_and_trimmed() {
+        let apps = vec![app(" visual studio CODE "), app("NOTEPAD")];
+        let picks = dashboard_picks(&apps, &HashMap::new(), 8);
+        assert_eq!(names(&picks), ["NOTEPAD", " visual studio CODE "]);
+    }
+
+    #[test]
+    fn limit_is_respected() {
+        let apps = vec![app("Foo"), app("Bar"), app("Notepad"), app("Slack")];
+        let c = counts(&[("Foo", 3), ("Bar", 2)]);
+        assert_eq!(
+            names(&dashboard_picks(&apps, &c, 3)),
+            ["Foo", "Bar", "Notepad"]
+        );
+        // Launched apps alone can fill (and be cut at) the limit
+        assert_eq!(names(&dashboard_picks(&apps, &c, 1)), ["Foo"]);
+        assert!(dashboard_picks(&apps, &c, 0).is_empty());
+    }
+
+    #[test]
+    fn nothing_suggested_when_no_names_match() {
+        let apps = vec![app("Foo"), app("Bar")];
+        assert!(dashboard_picks(&apps, &HashMap::new(), 8).is_empty());
     }
 }

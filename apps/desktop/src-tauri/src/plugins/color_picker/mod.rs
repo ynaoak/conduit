@@ -192,6 +192,16 @@ impl ConduitPlugin for ColorPickerPlugin {
         results
     }
 
+    /// A remembered color. The row that *starts* a pick is an action with
+    /// nothing to hand over yet, so it stays out of this.
+    async fn payload(&self, result_id: &str) -> Option<Payload> {
+        if result_id == PICK_ID {
+            return None;
+        }
+        let hex = result_id.strip_prefix(&format!("{}:", PLUGIN_ID))?;
+        Rgb::parse_hex(hex).map(|color| Payload::color(color.hex()))
+    }
+
     async fn execute(&self, result_id: &str, action_id: &str) -> anyhow::Result<()> {
         if result_id == PICK_ID {
             return self.run_pick().await;

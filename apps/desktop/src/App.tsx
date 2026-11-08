@@ -19,6 +19,7 @@ import { useTheme } from "./hooks/useTheme";
 import {
   addPin,
   executeAction,
+  sendToTool,
   getConfig,
   importWorkflow,
   listPins,
@@ -30,7 +31,8 @@ import {
   resolvedLanguage,
   releaseChannel,
 } from "./lib/ipc";
-import { DEFAULT_KEYBINDINGS } from "./lib/keys";
+import { DEFAULT_KEYBINDINGS, chordLabel } from "./lib/keys";
+import { findDashboardGrid } from "./lib/dashboardGrid";
 import type { AppConfig, SearchResult } from "./lib/types";
 import type { Screen } from "./components/ScreenTabs";
 import "./styles/global.css";
@@ -42,6 +44,7 @@ const SCREEN_ORDER: Screen[] = [
   "workflows",
   "launcher",
   "keybindings",
+  "settings",
   "about",
 ];
 
@@ -127,6 +130,14 @@ function App() {
     [rawResults, withPinAction],
   );
 
+  // Frequent apps on the empty-query dashboard are laid out in columns;
+  // ResultList draws the same range, keyboard nav steps through it by row
+  const isDashboard = query.trim() === "";
+  const dashboardGrid = useMemo(
+    () => findDashboardGrid(results, isDashboard),
+    [results, isDashboard],
+  );
+
   const openContextMenu = useCallback(
     (result: SearchResult, x: number, y: number) =>
       setContextMenu({ result: withPinAction(result), x, y }),
@@ -172,6 +183,7 @@ function App() {
             listPins()
               .then((items) => setPinnedIds(new Set(items.map((p) => p.result_id))))
               .catch(console.error);
+            refresh();
             showToast(
               pinAction === PIN_ACTION
                 ? s("app", "toast_pinned")
@@ -179,6 +191,16 @@ function App() {
             );
           })
           .catch((err) => showToast(s("app", "toast_failed", { error: String(err) })));
+        return;
+      }
+
+      // Sending a result to a tool window: the window comes forward with
+      // the value already in it, so the launcher gets out of the way the
+      // same as it does for anything else it opened.
+      if (action && action.startsWith("send:")) {
+        sendToTool(result.plugin_id, result.id, action)
+          .then(() => autoHideWindow().catch(console.error))
+          .catch((err) => showToast(s("app", "toast_execute_failed", { error: String(err) })));
         return;
       }
 
@@ -297,6 +319,7 @@ function App() {
     screen === "search",
     openManage,
     cycleScreen,
+    dashboardGrid,
   );
 
   const backToSearch = useCallback(() => {
@@ -469,7 +492,13 @@ function App() {
             onSelect={setSelectedIndex}
             onExecute={executeResult}
             isLoading={isLoading}
-            showSections={query.trim() === ""}
+            showSections={isDashboard}
+            grid={dashboardGrid}
+            pinHint={
+              query.trim() === "" && pinnedIds.size === 0
+                ? s("app", "pin_hint", { key: chordLabel(keybindings.toggle_pin) })
+                : null
+            }
             onContextMenu={openContextMenu}
           />
         </>

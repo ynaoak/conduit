@@ -58,7 +58,7 @@ impl SystemCommandsPlugin {
                 id: "conduit.system-commands".into(),
                 name: "System Commands".into(),
                 description: "System actions like shutdown, restart, lock".into(),
-                icon: "system".into(),
+                icon: "power_settings_new".into(),
                 keyword: None,
                 keyword_only: false,
             },

@@ -158,6 +158,15 @@ function copyFallback(text, done) {
   done();
 }
 
+
+// Something the launcher sent here (tool_window.rs injects it when a
+// result is handed to this window). Absent on a plain launch, which is
+// the empty page this tool has always opened as.
+const SENT = window.__conduitInput;
+if (SENT && SENT.kind === "text") {
+  $("input").value = SENT.value;
+}
+
 $("pretty").onclick = () => transform(2);
 $("minify").onclick = () => transform(0);
 $("copy-input").onclick = () => copy($("input").value);

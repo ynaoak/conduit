@@ -21,6 +21,7 @@ mod pins;
 mod plugin_system;
 mod plugins;
 mod screen_color;
+mod send_to;
 mod window;
 
 use config::ConfigState;
@@ -81,6 +82,7 @@ pub fn run() {
             app.manage(config_state.clone());
             app.manage(pins::PinsState::load(&config_dir));
             app.manage(color_history::ColorHistoryState::load(&config_dir));
+            app.manage(send_to::PendingInput::default());
             app.manage(capture_history::CaptureStore::load(&config_dir));
 
             // Built-in workflow packages (Dev Tools) — installed before the
@@ -95,6 +97,7 @@ pub fn run() {
             let registry_state: tauri::State<'_, PluginRegistry> = app.state();
             let registry_ref = registry_state.inner().clone();
             let config_for_plugins = config_state.clone();
+            let config_for_file_search = config_state.clone();
             let handle_for_plugins = handle.clone();
 
             tauri::async_runtime::spawn(async move {
@@ -154,6 +157,7 @@ pub fn run() {
                 registry_ref
                     .register(Box::new(plugins::file_search::FileSearchPlugin::new(
                         handle_for_plugins.clone(),
+                        config_for_file_search,
                     )))
                     .await;
                 registry_ref
@@ -256,9 +260,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::search::query,
+            send_to::send_to_tool,
             commands::search::browse_plugin,
             commands::execute::execute_action,
             commands::color::pick_screen_color,
+            commands::image::capture_image,
+            commands::image::save_image,
+            commands::image::copy_image,
+            commands::image::edit_capture,
+            commands::sshkey::generate_ssh_key,
+            commands::sshkey::save_ssh_key_dialog,
             commands::color::picked_colors,
             commands::capture::take_capture,
             commands::capture::capture_frame,
@@ -282,6 +293,7 @@ pub fn run() {
             commands::config::release_channel,
             commands::config::summon_hotkey,
             commands::config::open_config_file,
+            commands::config::list_plugins,
             commands::config::restart_app,
             commands::workflow::import_workflow,
             commands::workflow::list_workflows,

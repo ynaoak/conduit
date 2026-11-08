@@ -57,6 +57,21 @@ export interface PinnedItem {
   actions: Action[];
 }
 
+/** A registered plugin as list_plugins reports it: the manifest in the
+ *  UI language, plus whether it is switched on. `enabled` comes from the
+ *  registry, which treats a plugin missing from config.plugins.enabled as
+ *  on — so this is the state to render, not the config map. */
+export interface PluginInfo {
+  id: string;
+  name: string;
+  description: string;
+  icon: string;
+  keyword: string | null;
+  /** Answers only when its keyword is typed; never joins the fan-out */
+  keyword_only: boolean;
+  enabled: boolean;
+}
+
 export interface Keybindings {
   move_up: string[];
   move_down: string[];
@@ -100,6 +115,8 @@ export interface AppConfig {
   search: {
     max_results: number;
     web_search_engine: string;
+    /** Path to Everything's es.exe; empty means "look on PATH" */
+    everything_path?: string;
   };
   window: {
     hide_on_blur: boolean;
